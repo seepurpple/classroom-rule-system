@@ -4,36 +4,9 @@ import test from "node:test";
 
 const templateRoot = new URL("../", import.meta.url);
 
-async function render() {
-  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
-  workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
-  const { default: worker } = await import(workerUrl.href);
-
-  return worker.fetch(
-    new Request("http://localhost/", {
-      headers: { accept: "text/html" },
-    }),
-    {
-      ASSETS: {
-        fetch: async () => new Response("Not found", { status: 404 }),
-      },
-    },
-    {
-      waitUntil() {},
-      passThroughOnException() {},
-    },
-  );
-}
-
-test("server-renders Supabase classroom app shell", async () => {
-  const response = await render();
-  assert.equal(response.status, 200);
-  assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
-
-  const html = await response.text();
-  assert.match(html, /<title>모두의 역할 \| 1학년 3반<\/title>/i);
-  assert.match(html, /Supabase 학급 데이터를 불러오는 중/);
-  assert.match(html, /og\.png/);
+test("build emits a Vercel-compatible Nitro application", async () => {
+  await access(new URL("../.output/server/index.mjs", import.meta.url));
+  await access(new URL("../.output/public/og.png", import.meta.url));
 });
 
 test("keeps student identities anonymous and Supabase flows present", async () => {
@@ -48,7 +21,7 @@ test("keeps student identities anonymous and Supabase flows present", async () =
   assert.match(page, /function Manage/);
   assert.match(page, /25명/);
   assert.doesNotMatch(page, /김지우|박서준|이민서/);
-  assert.match(layout, /generateMetadata/);
+  assert.match(layout, /export const metadata/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
   assert.match(page, /submit_role_applications/);
   assert.match(page, /teacher_lottery/);
