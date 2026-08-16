@@ -1,111 +1,145 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
+import { supabase } from "./supabase";
+import "./supabase.css";
+import "./ledger.css";
 
-const students = [
-  { name: "김지우", role: "다독이", pay: 350, point: 2840, initials: "지", color: "lavender" },
-  { name: "박서준", role: "반장", pay: 900, point: 3540, initials: "서", color: "orange" },
-  { name: "이민서", role: "통장이", pay: 550, point: 1970, initials: "민", color: "blue" },
-  { name: "최하윤", role: "칠판이", pay: 500, point: 1320, initials: "하", color: "pink" },
-  { name: "정도윤", role: "지킴이", pay: 600, point: 910, initials: "도", color: "mint" },
-];
+type Role = { id: string; name: string; capacity: number; salary: number };
+type Student = { number: number; roleId: string | null; code?: string; balance?: number };
+type Application = { studentNo: number; roleId: string; preference: number; status: "pending" | "assigned" | "withdrawn" };
+type Entry = { id: string; studentNo: number; delta: number; title: string; detail: string; createdAt: string };
+type ShopItem = { id: string; name: string; price: number; note: string; icon: string };
+type Data = { roles: Role[]; shopItems: ShopItem[]; students: Student[]; applications: Application[]; ledger: Entry[]; publicLedger: Entry[]; applicationCounts: Record<string, number>; applicationStudentCount: number; settings: { applicationsOpen: boolean; deadline: string } };
+type View = "dashboard" | "roles" | "ledger" | "shop" | "manage" | "apply";
+type PublicState = Omit<Data, "applications" | "ledger" | "settings"> & { deadline: string; applicationsOpen: boolean; applicationStudentCount: number };
+type TeacherState = { base: PublicState; students: Student[]; applications: Application[]; ledger: Entry[] };
 
-const shopItems = [
-  { name: "간식 (소)", price: 200, icon: "🍬", note: "텐텐 · 마이쮸 등", tone: "yellow" },
-  { name: "간식 (중)", price: 600, icon: "🍪", note: "낱개 간식", tone: "peach" },
-  { name: "자리 선정권", price: 1200, icon: "🪑", note: "최대 3명까지", tone: "purple" },
-];
-
-const transactions = [
-  { date: "05. 16", title: "월급 지급", detail: "다독이 · 5월", amount: "+350", type: "earn" },
-  { date: "05. 14", title: "교과 선생님 칭찬", detail: "영어 수업 참여", amount: "+200", type: "earn" },
-  { date: "05. 10", title: "간식 (소)", detail: "마이쮸", amount: "-200", type: "spend" },
-  { date: "05. 08", title: "선행 포인트", detail: "역할 자발적 대행", amount: "+60", type: "earn" },
-];
+async function rpc<T>(name: string, args: Record<string, unknown> = {}) {
+  const { data, error } = await supabase.rpc(name, args);
+  if (error) throw new Error(error.message);
+  return data as T;
+}
+function publicData(state: PublicState): Data { return { ...state, applications: [], ledger: [], publicLedger: state.publicLedger ?? [], settings: { deadline: state.deadline, applicationsOpen: state.applicationsOpen } }; }
+function teacherData(state: TeacherState): Data { return { ...publicData(state.base), students: state.students, applications: state.applications, ledger: state.ledger }; }
+function deadlineOpen(data: Data, now: number) { return data.settings.applicationsOpen && now <= new Date(data.settings.deadline).getTime(); }
+function roleName(data: Data, id: string | null) { return data.roles.find((role) => role.id === id)?.name ?? "미배정"; }
+function assignedCount(data: Data, roleId: string) { return data.students.filter((student) => student.roleId === roleId).length; }
+function applicationCount(data: Data, roleId: string) { return data.applications.length ? data.applications.filter((application) => application.roleId === roleId && application.status !== "withdrawn").length : data.applicationCounts[roleId] ?? 0; }
+function pad(no: number) { return String(no).padStart(2, "0"); }
 
 export default function Home() {
-  const [active, setActive] = useState("대시보드");
-  const [notice, setNotice] = useState("");
-  const [query, setQuery] = useState("");
-  const [balance, setBalance] = useState(2840);
-
-  const filteredStudents = useMemo(
-    () => students.filter((student) => `${student.name} ${student.role}`.includes(query)),
-    [query],
-  );
-
-  function showNotice(message: string) {
-    setNotice(message);
-    window.setTimeout(() => setNotice(""), 2600);
-  }
-
-  function buy(item: (typeof shopItems)[number]) {
-    if (balance < item.price) {
-      showNotice("포인트가 부족해요.");
-      return;
-    }
-    setBalance((current) => current - item.price);
-    showNotice(`${item.name} 구매 요청을 기록했어요.`);
-  }
-
-  return (
-    <main className="app-shell">
-      <aside className="sidebar">
-        <div className="brand"><span>m</span><strong>모두의 역할</strong></div>
-        <div className="class-switcher"><div><small>현재 학급</small><b>1학년 3반</b></div><span>⌄</span></div>
-        <nav aria-label="주요 메뉴">
-          {[
-            ["▦", "대시보드"], ["♙", "학생·역할"], ["₩", "포인트 대장"], ["▱", "월급 관리"], ["◎", "학급 상점"],
-          ].map(([icon, label]) => (
-            <button key={label} className={active === label ? "nav-item active" : "nav-item"} onClick={() => { setActive(label); showNotice(`${label} 화면은 준비 중이에요.`); }}>
-              <span>{icon}</span>{label}
-            </button>
-          ))}
-        </nav>
-        <div className="sidebar-foot">
-          <button className="nav-item"><span>⚙</span>설정</button>
-          <div className="teacher"><div className="avatar teacher-avatar">윤</div><div><b>윤선생님</b><small>담임 교사</small></div><span>⋮</span></div>
-        </div>
-      </aside>
-
-      <section className="content">
-        <header className="topbar">
-          <div><p>2026년 5월 19일 · 월요일</p><h1>안녕하세요, 윤선생님 <span>👋</span></h1></div>
-          <div className="top-actions"><button className="icon-button" aria-label="알림">♧<i /></button><button className="help-button">? <span>도움말</span></button></div>
-        </header>
-
-        <section className="hero-grid">
-          <article className="hero-card">
-            <div className="hero-copy"><span className="eyebrow">이번 달 포인트 현황</span><h2>작은 책임이<br /><em>큰 성장</em>이 되는 교실</h2><p>이번 달 역할 수행을 기록하고,<br />모두의 노력을 공정하게 보상하세요.</p><button onClick={() => showNotice("5월 월급 지급 초안을 만들었어요.")}>5월 월급 지급하기 <span>→</span></button></div>
-            <div className="hero-art" aria-hidden="true"><div className="blob blob-one" /><div className="blob blob-two" /><div className="paper"><span>5월</span><b>급여일</b><strong>05. 21</strong><small>목요일</small></div><div className="coin coin-one">P</div><div className="coin coin-two">P</div><div className="spark">✦</div></div>
-          </article>
-          <article className="summary-card"><div className="summary-top"><span>다음 월급일</span><button onClick={() => showNotice("월급 기준일: 4주마다 해당 주 목요일")}>···</button></div><div className="calendar"><span>5월</span><div><b>21</b><small>목요일</small></div><strong>D-2</strong></div><div className="summary-bottom"><span>지급 예정 인원</span><b>28명 <i>›</i></b></div></article>
-        </section>
-
-        <section className="stat-grid" aria-label="학급 요약">
-          <article className="stat-card"><div className="stat-icon lilac">♙</div><div><span>역할 배정률</span><strong>100<small>%</small></strong><p className="up">↗ 전체 학생 배정 완료</p></div></article>
-          <article className="stat-card"><div className="stat-icon coral">P</div><div><span>이번 달 지급 포인트</span><strong>14,260<small>P</small></strong><p>지난 달보다 1,840P 많아요</p></div></article>
-          <article className="stat-card"><div className="stat-icon yellow">⌁</div><div><span>대기 중인 요청</span><strong>3<small>건</small></strong><p className="alert">● 확인이 필요해요</p></div></article>
-        </section>
-
-        <section className="main-grid">
-          <article className="panel role-panel"><div className="panel-heading"><div><h3>이번 달 역할 수행</h3><p>학생별 역할과 월급을 확인하세요.</p></div><button onClick={() => showNotice("전체 역할 목록을 열었어요.")}>전체 보기 <span>→</span></button></div><div className="student-list">
-            {students.map((student, index) => <div className="student-row" key={student.name}><div className={`avatar ${student.color}`}>{student.initials}</div><div className="student-name"><b>{student.name}</b><span>{student.role}</span></div><div className="progress-wrap"><div className="progress"><i style={{ width: `${[91, 100, 76, 84, 69][index]}%` }} /></div><small>{["우수", "우수", "보통", "좋음", "보통"][index]}</small></div><strong>{student.pay.toLocaleString()}<small>P</small></strong><button className="more" aria-label={`${student.name} 상세`}>⋮</button></div>)}
-          </div></article>
-          <article className="panel activity-panel"><div className="panel-heading"><div><h3>최근 활동</h3><p>오늘도 기록이 쌓이고 있어요.</p></div><button onClick={() => showNotice("전체 활동 기록을 열었어요.")}>전체 보기 <span>→</span></button></div><div className="activity-list"><Activity badge="P" tone="purple" text="영어 선생님 칭찬" name="김지우" note="수업 참여 태도가 매우 좋아요." amount="+200P" time="14분 전" /><Activity badge="♙" tone="blue" text="역할 변경 요청" name="이민서" note="출석이 → 기록이" time="1시간 전" action="확인" /><Activity badge="⌁" tone="orange" text="상점 구매 요청" name="최하윤" note="간식 (중) · 600P" time="2시간 전" action="승인" /></div></article>
-        </section>
-
-        <section className="lower-grid">
-          <article className="panel ledger-panel"><div className="panel-heading"><div><h3>김지우의 포인트 대장</h3><p>다독이 · 현재 보유 <b>{balance.toLocaleString()}P</b></p></div><button onClick={() => showNotice("포인트 지급·차감 양식을 열었어요.")}>+ 기록 추가</button></div><div className="ledger-table"><div className="ledger-head"><span>일자</span><span>내역</span><span>포인트</span></div>{transactions.map((row) => <div className="ledger-row" key={row.title}><span>{row.date}</span><div><b>{row.title}</b><small>{row.detail}</small></div><strong className={row.type}>{row.amount}P</strong></div>)}</div></article>
-          <article className="panel shop-panel"><div className="panel-heading"><div><h3>학급 상점</h3><p>포인트로 보상을 선택해요.</p></div><button onClick={() => showNotice("학급 상점을 열었어요.")}>더 보기 <span>→</span></button></div><div className="shop-list">{shopItems.map((item) => <div className="shop-item" key={item.name}><div className={`item-icon ${item.tone}`}>{item.icon}</div><div><b>{item.name}</b><span>{item.note}</span></div><button onClick={() => buy(item)}>{item.price.toLocaleString()}P</button></div>)}</div></article>
-        </section>
-      </section>
-      <aside className="right-rail"><div className="rail-title"><span>학생 찾기</span><button aria-label="닫기">×</button></div><label className="search"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="이름 또는 역할 검색" /></label><div className="search-results">{filteredStudents.map((student) => <button key={student.name} onClick={() => showNotice(`${student.name} 학생 정보를 열었어요.`)}><div className={`avatar ${student.color}`}>{student.initials}</div><span><b>{student.name}</b><small>{student.role}</small></span><em>{student.point.toLocaleString()}P</em></button>)}</div><div className="rule-note"><span>✦</span><div><b>운영 팁</b><p>역할 변경은 3주 수행 후<br />상호 동의로 가능해요.</p></div></div></aside>
-      {notice && <div className="toast" role="status">✓ {notice}</div>}
-    </main>
-  );
+  const [data, setData] = useState<Data | null>(null);
+  const [view, setView] = useState<View>("dashboard");
+  const [teacherToken, setTeacherToken] = useState("");
+  const [welcome, setWelcome] = useState(false);
+  const [toast, setToast] = useState("");
+  const [clock, setClock] = useState(0);
+  const say = (message: string) => { setToast(message); window.setTimeout(() => setToast(""), 2800); };
+  const refresh = async (token = teacherToken) => {
+    try {
+      const state = token ? await rpc<TeacherState>("teacher_snapshot", { p_token: token }) : await rpc<PublicState>("classroom_snapshot");
+      const next = token ? teacherData(state as TeacherState) : publicData(state as PublicState);
+      setData(next); return next;
+    } catch (error) { say(error instanceof Error ? error.message : "Supabase 연결을 확인하세요."); }
+  };
+  useEffect(() => {
+    const load = window.setTimeout(() => { void refresh().then((state) => { if (state && deadlineOpen(state, Date.now())) setWelcome(true); }); setClock(Date.now()); }, 0);
+    const timer = window.setInterval(() => setClock(Date.now()), 30_000);
+    return () => { window.clearTimeout(load); window.clearInterval(timer); };
+  // 최초 공개 상태만 불러온다.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const go = (next: View) => { if (next === "roles" && !teacherToken) { say("역할 배정은 교사 인증 후 사용할 수 있어요."); setView("manage"); return; } setView(next); };
+  if (!data) return <main className="loading">Supabase 학급 데이터를 불러오는 중…</main>;
+  const isOpen = deadlineOpen(data, clock);
+  return <main className="system-shell">
+    <aside className="sidebar"><div className="brand"><span>m</span><b>모두의 역할</b></div><div className="class-label"><small>현재 학급</small><strong>1학년 3반</strong><span>25명</span></div><nav>{[["▦", "dashboard", "대시보드"], ["♙", "roles", "학생 역할"], ["₩", "ledger", "포인트 대장"], ["◎", "shop", "학급 상점"], ["⚙", "manage", "학급 관리"]].map(([icon, id, label]) => <button key={id} className={view === id ? "nav active" : "nav"} onClick={() => go(id as View)}><span>{icon}</span>{label}</button>)}</nav><div className="sidebar-note"><b>역할 지원 기간</b><p>{isOpen ? "8월 20일 목요일 23:59까지" : "현재 지원을 받지 않아요."}</p><button disabled={!isOpen} onClick={() => { setWelcome(false); setView("apply"); }}>지원 페이지 열기 →</button></div><div className="teacher-status"><span className="round">윤</span><div><b>윤선생님</b><small>{teacherToken ? "교사 인증 완료" : "교사 모드 잠김"}</small></div></div></aside>
+    <section className="workspace"><header><div><p>2026년 8월 · 1학년 3반</p><h1>{titleFor(view)}</h1></div><div className="top-status"><span className={isOpen ? "open" : "closed"}>● {isOpen ? "역할 지원 진행 중" : "역할 지원 마감"}</span><button onClick={() => go("manage")}>{teacherToken ? "교사 모드" : "교사 로그인"}</button></div></header>
+      {view === "dashboard" && <Dashboard data={data} isOpen={isOpen} onApply={() => setView("apply")} onView={go} />}
+      {view === "roles" && <Roles data={data} token={teacherToken} refresh={refresh} say={say} />}
+      {view === "ledger" && <Ledger data={data} token={teacherToken} refresh={refresh} say={say} />}
+      {view === "shop" && <Shop data={data} refresh={refresh} say={say} />}
+      {view === "manage" && <Manage data={data} token={teacherToken} setToken={setTeacherToken} setData={setData} refresh={refresh} say={say} />}
+      {view === "apply" && <Apply data={data} isOpen={isOpen} refresh={refresh} say={say} />}
+    </section>
+    {welcome && isOpen && <Welcome deadline={data.settings.deadline} remaining={25 - (data.applicationStudentCount ?? 0)} onClose={() => setWelcome(false)} onApply={() => { setWelcome(false); setView("apply"); }} />}
+    {toast && <div className="toast" role="status">✓ {toast}</div>}
+  </main>;
 }
 
-function Activity({ badge, tone, text, name, note, amount, time, action }: { badge: string; tone: string; text: string; name: string; note: string; amount?: string; time: string; action?: string }) {
-  return <div className="activity"><div className={`activity-badge ${tone}`}>{badge}</div><div><b>{text}</b><p><strong>{name}</strong> · {note}</p></div><aside>{amount && <em>{amount}</em>}{action && <button>{action}</button>}<small>{time}</small></aside></div>;
+function titleFor(view: View) { return ({ dashboard: "오늘의 학급 운영", roles: "학생 역할 배정", ledger: "포인트 대장", shop: "학급 상점", manage: "학급 관리", apply: "1인 1역할 지원" } as Record<View, string>)[view]; }
+function Dashboard({ data, isOpen, onApply, onView }: { data: Data; isOpen: boolean; onApply: () => void; onView: (view: View) => void }) {
+  const assigned = data.students.filter((student) => student.roleId).length; const total = data.ledger.reduce((sum, entry) => sum + entry.delta, 0);
+  return <><section className="hero"><div><span className="pill">1인 1역할 · 지원 기간</span><h2>우리 반의 <em>작은 책임</em>이<br />함께 자라는 교실을 만들어요.</h2><button disabled={!isOpen} onClick={onApply}>역할 지원하기 <b>→</b></button></div><div className="hero-board"><span>역할<br />지원</span><strong>25</strong><small>학생 모두의<br />자리를 찾아요</small><i>✦</i></div></section><section className="stats"><Stat icon="♙" label="역할 배정" value={`${assigned} / 25`} note="정원 내 지원은 자동 배정" /><Stat icon="▱" label="역할 지원" value={`${Object.values(data.applicationCounts).reduce((a, b) => a + b, 0)}건`} note="현재 접수된 지원서" tone="mint" /><Stat icon="P" label="누적 포인트" value={`${total.toLocaleString()}P`} note="급여 · 보너스 · 상점 자동 반영" tone="yellow" /></section><section className="panel dashboard-roles"><PanelTitle title="모두의 역할" note="역할 담당 학생 번호입니다." button="역할 배정" onClick={() => onView("roles")} /><div className="role-assignees">{data.roles.map((role) => <div key={role.id}><b>{role.name}</b><span>{data.students.filter((student) => student.roleId === role.id).map((student) => `학생 ${pad(student.number)}`).join(" · ") || "미배정"}</span></div>)}</div></section><section className="panel recent"><PanelTitle title="최근 포인트 기록" note="급여·지급·사용 기록은 한 대장에 쌓여요." button="대장 열기" onClick={() => onView("ledger")} /><LedgerRows rows={data.publicLedger} limit={5} /></section></>;
 }
+function Stat({ icon, label, value, note, tone = "purple" }: { icon: string; label: string; value: string; note: string; tone?: string }) { return <article className={`stat ${tone}`}><span>{icon}</span><div><small>{label}</small><strong>{value}</strong><p>{note}</p></div></article>; }
+function PanelTitle({ title, note, button, onClick }: { title: string; note: string; button?: string; onClick?: () => void }) { return <div className="panel-title"><div><h3>{title}</h3><p>{note}</p></div>{button && <button onClick={onClick}>{button} →</button>}</div>; }
+function Roles({ data, token, refresh, say }: { data: Data; token: string; refresh: () => Promise<unknown>; say: (message: string) => void }) {
+  const [salaries, setSalaries] = useState<Record<string, string>>({});
+  const assign = async (studentNo: number, roleId: string) => { try { await rpc("teacher_assign_role", { p_token: token, p_student_no: studentNo, p_role_id: roleId || null }); await refresh(); say(`학생 ${pad(studentNo)} 역할을 저장했어요.`); } catch (error) { say(error instanceof Error ? error.message : "저장 실패"); } };
+  const saveSalary = async (role: Role) => { try { await rpc("teacher_update_role_salary", { p_token: token, p_role_id: role.id, p_salary: Number(salaries[role.id] ?? role.salary) }); await refresh(); setSalaries((current) => { const next = { ...current }; delete next[role.id]; return next; }); say(`${role.name} 월급을 저장했어요.`); } catch (error) { say(error instanceof Error ? error.message : "월급 저장 실패"); } };
+  return <><section className="notice-strip"><b>배정 규칙</b><span>정원 미만 지원은 자동 배정됩니다. 초과·미달 역할은 교사가 최종 배정합니다.</span></section><section className="role-cards">{data.roles.map((role) => <article key={role.id}><div><b>{role.name}</b><span>{assignedCount(data, role.id)} / {role.capacity}명</span></div><div className="role-salary"><input disabled={!token} inputMode="numeric" value={salaries[role.id] ?? role.salary} onChange={(event) => setSalaries((current) => ({ ...current, [role.id]: event.target.value.replace(/\D/g, "") }))} /><b>P / 월</b><button disabled={!token} onClick={() => saveSalary(role)}>저장</button></div><p>지원 {applicationCount(data, role.id)}명</p></article>)}</section><section className="panel roster"><PanelTitle title="번호별 역할 배정" note="학생 이름 없이 번호와 역할만 관리해요." /><div className="roster-grid">{data.students.map((student) => <label key={student.number}><span>학생 {pad(student.number)}</span><select disabled={!token} value={student.roleId ?? ""} onChange={(event) => assign(student.number, event.target.value)}><option value="">미배정</option>{data.roles.map((role) => <option key={role.id} value={role.id}>{role.name} · {role.salary}P</option>)}</select>{!token && <small>교사 인증 필요</small>}</label>)}</div></section></>;
+}
+const POINT_OPTIONS = [
+  { id: "praise", kind: "earn", title: "교과 담당 개인 칭찬", amount: 200 }, { id: "class-praise", kind: "earn", title: "학급 전체 칭찬", amount: 250, all: true }, { id: "good", kind: "earn", title: "학급 내 선행", amount: 60 }, { id: "substitute", kind: "earn", title: "자발적 역할 대행", amount: 0 }, { id: "teacher", kind: "earn", title: "담임 재량 추가 지급", amount: 0 },
+  { id: "ask-praise", kind: "spend", title: "교과 담당 칭찬 요구", amount: 300 }, { id: "poor-role", kind: "spend", title: "역할 수행 부족·직무유기", amount: 0 }, { id: "bad-report", kind: "spend", title: "교과 담당 안 좋은 전달", amount: 300 }, { id: "misdeed", kind: "spend", title: "학급 내 악행", amount: 120 }, { id: "late", kind: "spend", title: "학급 지각", amount: 100 }, { id: "rights", kind: "spend", title: "타인 권리 유린", amount: 1000 }, { id: "harm-class", kind: "spend", title: "3반 학생 피해", amount: 1000 }, { id: "harm-other", kind: "spend", title: "타반 학생 피해", amount: 1000 }, { id: "atmosphere", kind: "spend", title: "학급·수업 분위기 훼손", amount: 1000 },
+];
+const PAYROLL_RULES = [
+  { id: "performance30", label: "수행 수준 미달 · 최대 30% 삭감", applies: () => true },
+  { id: "shared20", label: "공동 역할 업무 미수행 · 월급 20% 지급", applies: (role: Role) => role.capacity >= 2 },
+  { id: "leader90", label: "친분 차별 · 누적 월급 90% 몰수", applies: (role: Role) => role.id === "leader" },
+  { id: "leader80", label: "관리 소홀·분위기 훼손 · 누적 월급 80% 몰수", applies: (role: Role) => role.id === "leader" },
+  { id: "readingBonusOff", label: "수행 미달 · 추천 도서 추가금 공제", applies: (role: Role) => role.id === "reading" },
+  { id: "bank40", label: "기록 누락 · 월급 200P 지급", applies: (role: Role) => role.id === "bank" },
+  { id: "bank0", label: "명세서 분실 · 월급 0P", applies: (role: Role) => role.id === "bank" },
+  { id: "audit0", label: "기록 누락 미발견 · 월급 0P", applies: (role: Role) => role.id === "audit" },
+  { id: "audit300", label: "다음 달 조정 · 월급 300P", applies: (role: Role) => role.id === "audit" },
+  { id: "audit2zero", label: "2개월 연속 누락 · 월급 0P", applies: (role: Role) => role.id === "audit" },
+  { id: "collude100", label: "통장이·지킴이 담합 · 누적 월급 전액 몰수", applies: (role: Role) => ["bank", "audit"].includes(role.id) },
+  { id: "device50", label: "디벗 보관함 비밀번호 유출 · 누적 월급 50% 몰수", applies: (role: Role) => role.id === "device" },
+];
+function Ledger({ data, token, refresh, say }: { data: Data; token: string; refresh: () => Promise<unknown>; say: (message: string) => void }) {
+  const [studentNo, setStudentNo] = useState("1"); const [amount, setAmount] = useState(""); const [title, setTitle] = useState(""); const [kind, setKind] = useState("earn"); const [period, setPeriod] = useState("2026-08"); const [preset, setPreset] = useState(""); const [tab, setTab] = useState<"points" | "reading">("points"); const [books, setBooks] = useState("1"); const [payrollChecks, setPayrollChecks] = useState<Record<number, string[]>>({}); const [adjustmentsOpen, setAdjustmentsOpen] = useState(false);
+  const option = POINT_OPTIONS.find((item) => item.id === preset);
+  const selectPreset = (id: string) => { setPreset(id); const next = POINT_OPTIONS.find((item) => item.id === id); if (next) { setKind(next.kind); setTitle(next.title); setAmount(next.amount ? String(next.amount) : ""); } };
+  const add = async (event: FormEvent) => { event.preventDefault(); try { const args = { p_token: token, p_delta: Number(amount) * (kind === "earn" ? 1 : -1), p_title: title, p_detail: option?.all ? "학급 전체 지급" : kind === "earn" ? "교사 포인트 지급" : "교사 포인트 차감" }; if (option?.all) await rpc("teacher_record_class_points", args); else await rpc("teacher_record_point", { ...args, p_student_no: Number(studentNo) }); setAmount(""); setTitle(""); setPreset(""); await refresh(); say(option?.all ? "전 학생에게 포인트를 지급했어요." : "포인트 대장에 기록했어요."); } catch (error) { say(error instanceof Error ? error.message : "기록 실패"); } };
+  const assigned = data.students.map((student) => ({ student, role: data.roles.find((role) => role.id === student.roleId) })).filter((item): item is { student: Student; role: Role } => Boolean(item.role));
+  const adjustmentFor = (student: Student, role: Role) => { const selected = payrollChecks[student.number] ?? []; let payout = role.salary; let confiscateRate = 0; let cancelReadingBonus = false; const reasons: string[] = []; for (const id of selected) { const rule = PAYROLL_RULES.find((item) => item.id === id); if (rule) reasons.push(rule.label); if (id === "performance30") payout = Math.min(payout, role.salary - Math.floor(role.salary * .3 / 100) * 100); if (id === "shared20") payout = Math.min(payout, Math.round(role.salary * .2)); if (id === "bank40") payout = Math.min(payout, 200); if (["bank0", "audit0", "audit2zero"].includes(id)) payout = 0; if (id === "audit300") payout = Math.min(payout, 300); if (id === "readingBonusOff") cancelReadingBonus = true; if (id === "leader90") confiscateRate = Math.max(confiscateRate, 90); if (id === "leader80") confiscateRate = Math.max(confiscateRate, 80); if (id === "collude100") confiscateRate = 100; if (id === "device50") confiscateRate = Math.max(confiscateRate, 50); } return { studentNo: student.number, payout, reason: reasons.join(" / ") || "정상 지급", confiscateRate, cancelReadingBonus }; };
+  const togglePayrollCheck = (studentNo: number, id: string) => setPayrollChecks((current) => ({ ...current, [studentNo]: current[studentNo]?.includes(id) ? current[studentNo].filter((value) => value !== id) : [...(current[studentNo] ?? []), id] }));
+  const payroll = async () => { try { await rpc("teacher_run_payroll", { p_token: token, p_period: period, p_adjustments: assigned.map(({ student, role }) => adjustmentFor(student, role)) }); await refresh(); say("체크한 조정을 반영해 역할 월급을 기록했어요."); } catch (error) { say(error instanceof Error ? error.message : "월급 지급 실패"); } };
+  const readingBonus = async (event: FormEvent) => { event.preventDefault(); try { const result = await rpc<{ bonus: number }>("teacher_record_reading_bonus", { p_token: token, p_student_no: Number(studentNo), p_books: Number(books), p_period: period }); await refresh(); say(`다독이 추천 도서 추가 ${result.bonus}P를 기록했어요.`); } catch (error) { say(error instanceof Error ? error.message : "추천 도서 기록 실패"); } };
+  if (!token) return <PublicLedger rows={data.publicLedger} />;
+  return <LedgerBody data={data} tab={tab} setTab={setTab} studentNo={studentNo} setStudentNo={setStudentNo} amount={amount} setAmount={setAmount} title={title} setTitle={setTitle} kind={kind} setKind={setKind} period={period} setPeriod={setPeriod} preset={preset} selectPreset={selectPreset} option={option} add={add} books={books} setBooks={setBooks} readingBonus={readingBonus} assigned={assigned} payrollChecks={payrollChecks} togglePayrollCheck={togglePayrollCheck} adjustmentFor={adjustmentFor} payroll={payroll} adjustmentsOpen={adjustmentsOpen} setAdjustmentsOpen={setAdjustmentsOpen} />
+}
+function LedgerBody({ data, tab, setTab, studentNo, setStudentNo, amount, setAmount, title, setTitle, kind, setKind, period, setPeriod, preset, selectPreset, option, add, books, setBooks, readingBonus, assigned, payrollChecks, togglePayrollCheck, adjustmentFor, payroll, adjustmentsOpen, setAdjustmentsOpen }: { data: Data; tab: "points" | "reading"; setTab: (tab: "points" | "reading") => void; studentNo: string; setStudentNo: (value: string) => void; amount: string; setAmount: (value: string) => void; title: string; setTitle: (value: string) => void; kind: string; setKind: (value: string) => void; period: string; setPeriod: (value: string) => void; preset: string; selectPreset: (id: string) => void; option: (typeof POINT_OPTIONS)[number] | undefined; add: (event: FormEvent) => Promise<void>; books: string; setBooks: (value: string) => void; readingBonus: (event: FormEvent) => Promise<void>; assigned: { student: Student; role: Role }[]; payrollChecks: Record<number, string[]>; togglePayrollCheck: (studentNo: number, id: string) => void; adjustmentFor: (student: Student, role: Role) => { payout: number }; payroll: () => Promise<void>; adjustmentsOpen: boolean; setAdjustmentsOpen: (open: boolean) => void }) {
+  return <><section className="payroll"><div><span>역할별 월급 지급</span><h2>체크한 감액·몰수 조건을 반영해<br />월급을 한 번에 기록해요.</h2><p>이미 지급한 월은 중복 기록하지 않아요.</p></div><div><input type="month" value={period} onChange={(event) => setPeriod(event.target.value)} /><button onClick={payroll}>월급 일괄 지급 →</button></div></section><PayrollAdjustments assigned={assigned} payrollChecks={payrollChecks} togglePayrollCheck={togglePayrollCheck} adjustmentFor={adjustmentFor} open={adjustmentsOpen} setOpen={setAdjustmentsOpen} /><div className="ledger-tabs"><button className={tab === "points" ? "active" : ""} onClick={() => setTab("points")}>지급 · 차감</button><button className={tab === "reading" ? "active" : ""} onClick={() => setTab("reading")}>다독이 추천 도서</button></div>{tab === "points" ? <section className="two-columns ledger-layout"><article className="panel"><PanelTitle title="포인트 지급 · 차감" note="운영지침 항목을 고르면 금액이 자동 입력됩니다." /><form className="point-form" onSubmit={add}><select value={preset} onChange={(event) => selectPreset(event.target.value)}><option value="">직접 입력</option><optgroup label="지급">{POINT_OPTIONS.filter((item) => item.kind === "earn").map((item) => <option key={item.id} value={item.id}>{item.title}{item.amount ? ` · +${item.amount}P` : ""}</option>)}</optgroup><optgroup label="차감">{POINT_OPTIONS.filter((item) => item.kind === "spend").map((item) => <option key={item.id} value={item.id}>{item.title}{item.amount ? ` · -${item.amount}P` : ""}</option>)}</optgroup></select>{!option?.all && <select value={studentNo} onChange={(event) => setStudentNo(event.target.value)}>{data.students.map((student) => <option key={student.number} value={student.number}>학생 {pad(student.number)} · {roleName(data, student.roleId)}</option>)}</select>}<div className="switch"><button type="button" className={kind === "earn" ? "selected" : ""} onClick={() => { setKind("earn"); selectPreset(""); }}>지급</button><button type="button" className={kind === "spend" ? "selected red" : ""} onClick={() => { setKind("spend"); selectPreset(""); }}>차감</button></div>{option?.all && <p className="all-students">전 학생 25명에게 {amount || 0}P씩 기록합니다.</p>}<input required inputMode="numeric" placeholder="포인트" value={amount} onChange={(event) => setAmount(event.target.value.replace(/\D/g, ""))} /><input required placeholder="내역" value={title} onChange={(event) => setTitle(event.target.value)} /><button className="primary">{option?.all ? "전 학생에게 기록하기" : "대장에 기록하기"}</button></form></article><article className="panel"><PanelTitle title="학생별 현재 포인트" note="모든 지급·사용 내역 합계" /><div className="balance-list">{data.students.map((student) => <div key={student.number}><span>학생 {pad(student.number)}</span><small>{roleName(data, student.roleId)}</small><b>{(student.balance ?? 0).toLocaleString()}P</b></div>)}</div></article></section> : <section className="two-columns ledger-layout"><article className="panel"><PanelTitle title="다독이 월간 추천 도서" note="2권까지 권당 100P, 이후 권당 50P · 최대 700P" /><form className="point-form" onSubmit={readingBonus}><select value={studentNo} onChange={(event) => setStudentNo(event.target.value)}>{data.students.filter((student) => student.roleId === "reading").map((student) => <option key={student.number} value={student.number}>학생 {pad(student.number)} · 다독이</option>)}<option value="">다독이 배정 후 선택</option></select><input required type="month" value={period} onChange={(event) => setPeriod(event.target.value)} /><input required inputMode="numeric" min="1" placeholder="이번 달 추천 도서 권수" value={books} onChange={(event) => setBooks(event.target.value.replace(/\D/g, ""))} /><p className="all-students">예상 추가 지급: {Math.min(700, Number(books) <= 2 ? Number(books) * 100 : 200 + (Number(books) - 2) * 50)}P</p><button className="primary">추천 도서 추가 지급 기록</button></form></article><article className="panel guide"><span>✦</span><h3>다독이 추가 포인트</h3><ol><li>추천 도서 2권까지: 권당 100P</li><li>3권부터: 권당 50P</li><li>최대 700P까지 지급</li></ol></article></section>}<LedgerPage rows={data.ledger} title="전체 포인트 대장" note="상점 구매도 자동으로 함께 기록됩니다." /></>;
+}
+function PayrollAdjustments({ assigned, payrollChecks, togglePayrollCheck, adjustmentFor, open, setOpen }: { assigned: { student: Student; role: Role }[]; payrollChecks: Record<number, string[]>; togglePayrollCheck: (studentNo: number, id: string) => void; adjustmentFor: (student: Student, role: Role) => { payout: number }; open: boolean; setOpen: (open: boolean) => void }) { return <section className="panel payroll-adjustments"><div className="panel-title"><div><h3>역할별 월급 조정</h3><p>체크하지 않으면 기본 월급을 지급합니다.</p></div><button className="payroll-toggle" onClick={() => setOpen(!open)}>{open ? "접기 ▲" : "펼치기 ▼"}</button></div>{open && (assigned.length ? <div className="adjustment-grid">{assigned.map(({ student, role }) => <article key={student.number}><header><b>학생 {pad(student.number)} · {role.name}</b><strong>지급 예정 {adjustmentFor(student, role).payout.toLocaleString()}P</strong></header>{PAYROLL_RULES.filter((rule) => rule.applies(role)).map((rule) => <label key={rule.id}><input type="checkbox" checked={payrollChecks[student.number]?.includes(rule.id) ?? false} onChange={() => togglePayrollCheck(student.number, rule.id)} />{rule.label}</label>)}</article>)}</div> : <p className="empty">역할 배정 후 월급 조정 항목이 표시됩니다.</p>)}</section>; }
+function PublicLedger({ rows }: { rows: Entry[] }) { return <section className="public-ledger"><div className="public-ledger-hero"><span>학생 열람용</span><h2>우리 반 포인트 기록</h2><p>지급·사용 내역을 모두 확인할 수 있어요.</p></div><LedgerPage rows={rows} title="포인트 기록" note="최근 기록부터 30개씩 볼 수 있어요." /></section>; }
+function LedgerPage({ rows, title, note }: { rows: Entry[]; title: string; note: string }) { const [page, setPage] = useState(0); const pages = Math.max(1, Math.ceil(rows.length / 30)); const safePage = Math.min(page, pages - 1); const visible = rows.slice(safePage * 30, safePage * 30 + 30); return <section className="panel ledger-page"><PanelTitle title={title} note={note} /><LedgerRows rows={visible} limit={30} /><div className="ledger-pagination"><button disabled={safePage === 0} onClick={() => setPage(safePage - 1)}>이전</button><span>{safePage + 1} / {pages}</span><button disabled={safePage + 1 >= pages} onClick={() => setPage(safePage + 1)}>다음</button></div></section>; }
+function LedgerRows({ rows, limit }: { rows: Entry[]; limit: number }) { const visible = rows.slice(0, limit); return <div className="ledger-rows">{visible.map((row) => <div key={row.id}><span>{new Date(row.createdAt).toLocaleDateString("ko-KR", { month: "2-digit", day: "2-digit" })}</span><b>학생 {pad(row.studentNo)}</b><p><strong>{row.title}</strong><small>{row.detail}</small></p><em className={row.delta > 0 ? "plus" : "minus"}>{row.delta > 0 ? "+" : ""}{row.delta.toLocaleString()}P</em></div>)}{rows.length === 0 && <p className="empty">아직 기록이 없어요.</p>}</div>; }
+function Shop({ data, refresh, say }: { data: Data; refresh: () => Promise<unknown>; say: (message: string) => void }) {
+  const [code, setCode] = useState(""); const [selected, setSelected] = useState(""); const buy = async () => { if (!selected) return say("상품을 선택하세요."); try { const result = await rpc<{ message: string }>("student_purchase", { p_code: code, p_item_id: selected }); await refresh(); setCode(""); say(result.message); } catch (error) { say(error instanceof Error ? error.message : "구매 실패"); } };
+  return <><section className="shop-hero"><span>학급 상점</span><h2>모은 포인트로<br />즐거운 보상을 선택해요.</h2><p>구매하면 포인트 사용 내역이 자동으로 대장에 기록됩니다.</p></section><section className="shop-grid">{data.shopItems.map((item) => <button key={item.id} className={selected === item.id ? "shop-card selected" : "shop-card"} onClick={() => setSelected(item.id)}><span>{item.icon}</span><b>{item.name}</b><small>{item.note}</small><strong>{item.price.toLocaleString()}P</strong></button>)}</section><section className="purchase"><div><b>{selected ? data.shopItems.find((item) => item.id === selected)?.name : "상품을 선택하세요"}</b><span>학생 고유난수로 구매합니다.</span></div><input inputMode="numeric" maxLength={4} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))} placeholder="고유난수 4자리" /><button onClick={buy}>구매 요청하기</button></section></>;
+}
+function Apply({ data, isOpen, refresh, say }: { data: Data; isOpen: boolean; refresh: () => Promise<unknown>; say: (message: string) => void }) {
+  const [code, setCode] = useState(""); const [studentNo, setStudentNo] = useState<number | null>(null); const [selected, setSelected] = useState("");
+  const identify = async (event: FormEvent) => { event.preventDefault(); try { const result = await rpc<{ studentNo: number; roleIds: string[] }>("identify_student", { p_code: code }); setStudentNo(result.studentNo); setSelected(result.roleIds?.[0] ?? ""); } catch (error) { say(error instanceof Error ? error.message : "확인 실패"); } };
+  const submit = async () => { if (!selected) return say("지원할 역할을 선택하세요."); try { await rpc("submit_role_applications", { p_code: code, p_role_ids: [selected] }); await refresh(); say("지원서를 접수했어요. 정원 내 역할은 자동 배정됩니다."); } catch (error) { say(error instanceof Error ? error.message : "지원 실패"); } };
+  if (!isOpen) return <section className="closed-page"><span>⌁</span><h2>역할 지원 기간이 아니에요.</h2><p>8월 20일 목요일 23:59까지 접수받았습니다.</p></section>;
+  return <section className="apply-page"><div className="apply-intro"><span>STEP {studentNo ? "02" : "01"}</span><h2>{studentNo ? `학생 ${pad(studentNo)}의 희망 역할을 고르세요.` : "받은 고유난수 4자리를 입력하세요."}</h2><p>희망 역할 한 가지만 선택할 수 있어요.</p></div>{!studentNo ? <form className="code-form" onSubmit={identify}><input inputMode="numeric" maxLength={4} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))} placeholder="0000" /><button className="primary">내 번호 확인하기 →</button></form> : <><div className="choice-note">{selected ? `선택 역할 · ${roleName(data, selected)}` : "희망 역할을 선택하세요"}</div><div className="apply-roles">{data.roles.map((role) => <button key={role.id} className={selected === role.id ? "selected" : ""} onClick={() => setSelected(role.id)}><b>{role.name}</b><span>{role.salary.toLocaleString()}P / 월</span><small>지원 {applicationCount(data, role.id)}/{role.capacity}명</small></button>)}</div><div className="apply-footer"><span>마감 전에는 다시 접속해 희망 역할을 바꿀 수 있어요.</span><button className="primary" onClick={submit}>이대로 지원하기 →</button></div></>}</section>;
+}
+function Manage({ data, token, setToken, setData, refresh, say }: { data: Data; token: string; setToken: (token: string) => void; setData: (data: Data) => void; refresh: (token?: string) => Promise<unknown>; say: (message: string) => void }) {
+  const [password, setPassword] = useState(""); const [newPassword, setNewPassword] = useState(""); const [editing, setEditing] = useState<Record<number, string>>({}); const [lottery, setLottery] = useState<Record<string, number[]>>({});
+  const login = async (event: FormEvent) => { event.preventDefault(); try { const result = await rpc<{ token: string; state: TeacherState }>("teacher_login", { p_password: password }); setToken(result.token); setData(teacherData(result.state)); setPassword(""); say("교사 모드로 전환했어요."); } catch (error) { say(error instanceof Error ? error.message : "인증 실패"); } };
+  const updateCode = async (studentNo: number, reset = false) => { try { const result = await rpc<{ student: Student }>(reset ? "teacher_reset_code" : "teacher_update_code", reset ? { p_token: token, p_student_no: studentNo } : { p_token: token, p_student_no: studentNo, p_code: editing[studentNo] }); setEditing((current) => ({ ...current, [studentNo]: result.student.code ?? "" })); await refresh(token); say(`학생 ${pad(studentNo)} 고유난수를 저장했어요.`); } catch (error) { say(error instanceof Error ? error.message : "변경 실패"); } };
+  const reset = async (scope: "roles" | "ledger") => { const label = scope === "roles" ? "역할과 지원 내역" : "포인트 대장"; if (!window.confirm(`${label}을 초기화할까요? 이 작업은 되돌릴 수 없습니다.`)) return; try { await rpc("teacher_reset", { p_token: token, p_scope: scope }); await refresh(token); say(`${label}을 초기화했어요.`); } catch (error) { say(error instanceof Error ? error.message : "초기화 실패"); } };
+  const draw = async (role: Role) => { try { const result = await rpc<{ studentNos: number[] }>("teacher_lottery", { p_token: token, p_role_id: role.id }); setLottery((current) => ({ ...current, [role.id]: result.studentNos })); say(`${role.name} 무작위 후보를 뽑았어요. 다시 돌려도 배정되지는 않아요.`); } catch (error) { say(error instanceof Error ? error.message : "추첨 실패"); } };
+  const changePassword = async (event: FormEvent) => { event.preventDefault(); try { const result = await rpc<{ token: string; state: TeacherState }>("teacher_change_password", { p_token: token, p_new_password: newPassword }); setToken(result.token); setData(teacherData(result.state)); setNewPassword(""); say("교사 비밀번호를 바꿨어요."); } catch (error) { say(error instanceof Error ? error.message : "변경 실패"); } };
+  const downloadCodes = () => { const csv = `\uFEFF학생 번호,고유난수\n${data.students.map((student) => `${student.number},${student.code ?? ""}`).join("\n")}`; const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" })); const link = document.createElement("a"); link.href = url; link.download = "1학년_3반_학생별_고유난수.csv"; link.click(); URL.revokeObjectURL(url); };
+  if (!token) return <section className="teacher-login"><span className="lock">♙</span><h2>교사 전용 관리 화면</h2><p>고유난수, 지원 현황, 역할 배정, 포인트를 관리합니다.</p><form onSubmit={login}><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="교사 비밀번호" /><button className="primary">교사 모드 열기</button></form></section>;
+  const pending = data.applications.filter((application) => application.status === "pending"); const oversubscribed = data.roles.map((role) => ({ role, applicants: pending.filter((application) => application.roleId === role.id), open: role.capacity - assignedCount(data, role.id) })).filter(({ applicants, open }) => applicants.length > open);
+  return <><section className="manage-header"><div><span>교사 인증 완료</span><h2>학급 운영 설정</h2><p>역할 지원 마감: 2026년 8월 20일 목요일 23:59</p></div><button className="toggle on"><i />서버 시간 기준 자동 마감</button></section><section className="two-columns"><article className="panel"><PanelTitle title="역할 지원 접수 현황" note="정원 초과 역할만 무작위 추첨 후보를 뽑습니다." /><div className="applications">{data.applications.filter((application) => application.status !== "withdrawn").map((application) => <div key={`${application.studentNo}-${application.roleId}`}><span>학생 {pad(application.studentNo)} · 희망 역할</span><b>{roleName(data, application.roleId)} {application.status === "assigned" ? "(자동 배정)" : ""}</b></div>)}{data.applications.length === 0 && <p className="empty">아직 접수된 지원이 없어요.</p>}</div></article><article className="panel"><PanelTitle title="초과 역할 무작위 돌리기" note="여러 번 돌릴 수 있으며, 결과는 최종 배정 전 후보 표시입니다." />{oversubscribed.map(({ role, applicants, open }) => <div className="lottery-card" key={role.id}><b>{role.name} · {Math.max(0, open)}명 추첨</b><p>{applicants.map((application) => <span className={lottery[role.id]?.includes(application.studentNo) ? "winner" : ""} key={application.studentNo}>학생 {pad(application.studentNo)}</span>)}</p><button onClick={() => draw(role)}>무작위 돌리기</button></div>)}{oversubscribed.length === 0 && <p className="empty">현재 정원 초과 지원 역할이 없어요.</p>}</article></section><section className="panel code-panel"><PanelTitle title="학생별 고유난수" note="4자리 숫자. 수정하거나 새로 뽑을 수 있어요." /><button className="csv-download" onClick={downloadCodes}>CSV 내려받기</button><div className="code-grid">{data.students.map((student) => <div key={student.number}><span>학생 {pad(student.number)}</span><input inputMode="numeric" maxLength={4} value={editing[student.number] ?? student.code ?? ""} onChange={(event) => setEditing((current) => ({ ...current, [student.number]: event.target.value.replace(/\D/g, "") }))} /><button onClick={() => updateCode(student.number)}>저장</button><button className="reset" onClick={() => updateCode(student.number, true)} title="새 난수 생성">↻</button></div>)}</div></section><section className="two-columns reset-grid"><article className="panel danger-panel"><PanelTitle title="시범 운영 초기화" note="개학 전 테스트 데이터만 지우세요." /><button className="danger" onClick={() => reset("roles")}>역할 · 지원 초기화</button><button className="danger" onClick={() => reset("ledger")}>포인트 대장 초기화</button></article><article className="panel"><PanelTitle title="교사 비밀번호 변경" note="숫자 4자리. 변경하면 다른 교사 세션은 종료됩니다." /><form className="password-form" onSubmit={changePassword}><input required inputMode="numeric" pattern="[0-9]{4}" minLength={4} maxLength={4} type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value.replace(/\D/g, ""))} placeholder="새 비밀번호 4자리" /><button className="primary">비밀번호 변경</button></form></article></section></>;
+}
+function Welcome({ deadline, remaining, onClose, onApply }: { deadline: string; remaining: number; onClose: () => void; onApply: () => void }) { return <div className="modal-backdrop"><section className="welcome"><button className="x" onClick={onClose}>×</button><span className="welcome-badge">1인 1역할 지원 기간</span><div className="welcome-art remaining-art"><small>아직 지원하지 않은 학생</small><b>{remaining}</b><span>명</span></div><h2>어떤 역할을<br /><em>맡아보고 싶나요?</em></h2><p>마감: {new Date(deadline).toLocaleString("ko-KR", { dateStyle: "medium", timeStyle: "short" })}</p><button className="primary wide" onClick={onApply}>역할 지원하기 →</button><button className="later" onClick={onClose}>나중에 할게요</button></section></div>; }
