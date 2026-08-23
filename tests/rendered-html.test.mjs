@@ -25,6 +25,11 @@ test("keeps student identities anonymous and Supabase flows present", async () =
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
   assert.match(page, /submit_role_applications/);
   assert.match(page, /teacher_lottery/);
+  assert.match(page, /teacher_fill_unassigned_roles/);
+  assert.match(page, /teacher_update_point_entry/);
+  assert.match(page, /teacher_delete_point_entry/);
+  assert.match(page, /미배정 학생 무작위 배정/);
+  assert.match(page, /포인트 대장 수정/);
   assert.match(page, /teacher_reset/);
   assert.match(page, /teacher_change_password/);
   assert.match(page, /teacher_record_class_points/);
