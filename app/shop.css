@@ -1,0 +1,9 @@
+.shop-card:disabled { cursor: not-allowed; opacity: .55; }
+.shop-card .seat-remaining { color: #d45145; font-weight: bold; margin-top: -7px; }
+.shop-complete { width: min(100%, 390px); border-radius: 20px; background: #fff; padding: 29px; text-align: center; box-shadow: 0 25px 60px #1f193d55; }
+.shop-complete > span { display: grid; place-items: center; width: 44px; height: 44px; margin: auto; border-radius: 50%; background: #eaf8f2; color: #3c9e77; font-size: 22px; font-weight: bold; }
+.shop-complete h2 { margin: 13px 0 8px; font-size: 22px; }
+.shop-complete > b { font-size: 13px; }
+.shop-complete p { color: #858294; font-size: 11px; line-height: 1.6; }
+.shop-complete strong { display: block; color: #d45145; font-size: 11px; line-height: 1.5; }
+.shop-complete .primary { margin: 18px 0 0; background: #6b5ada; color: #fff; }
