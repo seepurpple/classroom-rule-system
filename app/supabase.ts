@@ -1,6 +1,2 @@
-import { createClient } from "@supabase/supabase-js";
-
-export const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
-);
+// Credentials and authentication stay in the same-origin server gateway.
+export const supabase={async rpc(name:string,args:Record<string,unknown>={}){try{const r=await fetch("/api/classroom",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name,args}),signal:AbortSignal.timeout(15000)});return await r.json();}catch{return {data:null,error:{message:"연결에 실패했어요. 다시 시도해 주세요."}};}}};

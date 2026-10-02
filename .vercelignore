@@ -1,0 +1,6 @@
+assets/source/
+data/
+docs/screenshots/
+.env*
+.git/
+node_modules/

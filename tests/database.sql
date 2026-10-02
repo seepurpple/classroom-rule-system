@@ -1,0 +1,40 @@
+-- Run against the connected database. All mutations are rolled back.
+begin;
+update private.petclass_config set key_hash=encode(extensions.digest('petclass-test-key','sha256'),'hex');
+do $$
+declare s public.classroom_students;t uuid;tok text:='petclass-student-test';tt text:='petclass-teacher-test';r jsonb;q jsonb;before_balance bigint;oid uuid;seen bool;req text:='db-purchase-00000001';data jsonb;
+begin
+ select * into s from public.classroom_students where student_no>0 order by student_no limit 1;
+ insert into private.petclass_sessions values(encode(extensions.digest(tok,'sha256'),'hex'),s.id,encode(extensions.digest(s.access_code,'sha256'),'hex'),null,now()+interval '5 minutes');
+ insert into public.teacher_sessions(expires_at)values(now()+interval '5 minutes')returning token into t;
+ insert into private.petclass_sessions values(encode(extensions.digest(tt,'sha256'),'hex'),null,null,t,now()+interval '5 minutes');
+ insert into public.point_entries(student_id,delta,title)values(s.id,10000,'PetClass rollback test');
+ select coalesce(sum(delta),0)into before_balance from public.point_entries where student_id=s.id;
+ r:=public.petclass_gateway('petclass-test-key','state',tok,'{}');
+ assert r->'user'->>'id'=s.id::text,'existing student mapping';
+ assert jsonb_array_length(r->'students')=0,'student cannot enumerate farms';
+ assert not exists(select 1 from jsonb_array_elements(r->'ledger')x where (x->>'studentNo')::int<>s.student_no),'own ledger only';
+ r:=public.petclass_gateway('petclass-test-key','state','','{}');assert jsonb_array_length(r->'ledger')=0 and r->'user'='null'::jsonb,'public privacy';
+ q:=jsonb_build_object('sku','food-s','quantity',2,'expectedPrice',30,'requestId',req);
+ r:=public.petclass_gateway('petclass-test-key','purchase',tok,q);
+ assert (r->'state'->>'balance')::bigint=before_balance-60,'point debit';
+ assert (select sum((x->>'remaining')::int)from jsonb_array_elements(r->'state'->'inventory')x where x->>'sku'='food-s')>=2,'item delivered';
+ r:=public.petclass_gateway('petclass-test-key','purchase',tok,q);
+ assert (r->'state'->>'balance')::bigint=before_balance-60,'idempotent replay';
+ seen:=false;begin perform public.petclass_gateway('petclass-test-key','purchase',tok,q||'{"quantity":3}');exception when others then seen:=true;end;assert seen,'request mismatch rejection';
+ seen:=false;begin perform public.petclass_gateway('petclass-test-key','purchase',tok,q||'{"expectedPrice":1,"requestId":"db-price-changed-001"}');exception when others then seen:=true;end;assert seen,'price tampering';
+ seen:=false;begin perform public.petclass_gateway('petclass-test-key','purchase',tok,'{"sku":"premium-draw-5","quantity":99,"expectedPrice":5200,"requestId":"db-insufficient-0001"}');exception when others then seen:=true;end;assert seen,'insufficient balance';
+ select id into oid from private.petclass_orders where student_id=s.id and sku='food-s' order by created_at desc,id limit 1;
+ r:=public.petclass_gateway('petclass-test-key','refund',tt,jsonb_build_object('orderId',oid,'note','rollback test','requestId','db-refund-00000001'));
+ assert (select sum(delta)from public.point_entries where student_id=s.id)=before_balance,'refund conservation';
+ seen:=false;begin delete from public.point_entries where id=(select point_entry_id from private.petclass_orders where id=oid);exception when others then seen:=true;end;assert seen,'ledger cannot orphan inventory';
+ seen:=false;begin perform public.petclass_gateway('petclass-test-key','refund',tt,jsonb_build_object('orderId',oid,'note','again','requestId','db-refund-00000002'));exception when others then seen:=true;end;assert seen,'no double refund';
+ seen:=false;begin perform public.petclass_gateway('petclass-test-key','price',tok,'{"sku":"food-s","price":1}');exception when others then seen:=true;end;assert seen,'teacher authorization';
+ r:=public.petclass_gateway('petclass-test-key','commit',tok,jsonb_build_object('studentId',s.id,'version',-1,'data','{}'::jsonb,'requestId','db-conflict-0000001','fingerprint','test','message','test'));
+ assert (r->>'status')::int=409,'stale write rejected';
+ assert public.classroom_snapshot()->'publicLedger'='[]'::jsonb,'legacy public ledger closed';
+ perform public.petclass_gateway('petclass-test-key','logout',tok,'{}');
+ r:=public.petclass_gateway('petclass-test-key','state',tok,'{}');assert r->'user'='null'::jsonb,'logout revoked';
+end$$;
+rollback;
+select 'PASS: student mapping, privacy, atomic purchase, replay, price validation, insufficient balance, refund, protected ledger, role checks, stale-write rejection, logout' as result;

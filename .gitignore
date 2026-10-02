@@ -40,3 +40,7 @@ yarn-error.log*
 /outputs/
 /work/
 /data/classroom.json
+
+# local tooling
+/supabase/.temp/
+/data/
