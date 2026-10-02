@@ -1,5 +1,6 @@
 import { addExperience, evolutionName, getItem, getSpecies, stageForLevel } from "./catalog";
 import type { LogEntry, Student } from "./types";
+import { emptyStats, validAllocation, statLimit, statTotal } from "./stats";
 
 export class FarmError extends Error {
   constructor(message: string, public status = 400) { super(message); }
@@ -51,7 +52,7 @@ export function applyAction(doc: FarmDocument, actorId: string, body: Payload): 
   const actor = doc.users.find(u => u.id === actorId);
   if (!actor) throw new FarmError("다시 로그인해 주세요.", 401);
   const teacherActions = ["grant", "adjustLevel"];
-  const studentActions = ["choosePet", "useItem", "representative", "release"];
+  const studentActions = ["choosePet", "useItem", "representative", "release", "allocateStats"];
   if ((teacherActions.includes(body.action) && actor.role !== "teacher") || (studentActions.includes(body.action) && actor.role !== "student")) throw new FarmError("이 작업을 할 권한이 없습니다.", 403);
   let message = "";
   let studentId: string | null = actor.role === "student" ? actor.id : null;
@@ -107,6 +108,11 @@ export function applyAction(doc: FarmDocument, actorId: string, body: Payload): 
     } else {
       throw new FarmError(item.kind === "potion" ? "체력 물약은 결투 업데이트 후 사용할 수 있습니다." : "펫 선택권은 새 펫 선택 화면에서 사용해 주세요.", 409);
     }
+  } else if (body.action === "allocateStats") {
+    const pet = petFor(actor, body.petId);
+    if (!validAllocation(body.allocation, pet.level)) throw new FarmError(`남은 포인트와 스탯별 한도(+${statLimit(pet.level)})를 확인해 주세요. 0 이상의 정수만 사용할 수 있습니다.`);
+    pet.statAllocation = { ...body.allocation };
+    message = `${actor.name} · ${evolutionName(pet.speciesId, pet.stage)} 스탯 ${statTotal(pet.statAllocation)}포인트 배분 저장`;
   } else if (body.action === "representative") {
     const chosen = petFor(actor, body.petId);
     actor.pets.forEach(p => { p.representative = p.id === chosen.id; });
@@ -125,9 +131,11 @@ export function applyAction(doc: FarmDocument, actorId: string, body: Payload): 
     pet.level = level;
     pet.xp = 0;
     pet.stage = stageForLevel(level);
+    const resetStats = pet.statAllocation && !validAllocation(pet.statAllocation, level);
+    if (resetStats) pet.statAllocation = emptyStats();
     learnNaturalSkills(pet);
     studentId = target.id;
-    message = `${target.name} · ${evolutionName(pet.speciesId, pet.stage)} Lv.${before} → Lv.${level} 조정 (경험치 0) · ${note}`;
+    message = `${target.name} · ${evolutionName(pet.speciesId, pet.stage)} Lv.${before} → Lv.${level} 조정 (경험치 0)${resetStats ? " · 스탯 한도 초과로 배분 초기화" : ""} · ${note}`;
   } else {
     throw new FarmError("지원하지 않는 작업입니다.");
   }
