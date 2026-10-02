@@ -15,7 +15,20 @@ export const ITEMS: Item[] = [
 ];
 export const getSpecies = (id: string) => SPECIES.find(s => s.id === id);
 export const evolutionName = (speciesId: string, stage: number) => getSpecies(speciesId)?.forms[stage - 1] ?? "펫";
-export const getItem = (sku: string) => ITEMS.find(i => i.sku === sku);
+// Teacher-added shop items arrive with the server state; built-in items stay in ITEMS.
+export type ShopProduct = { sku: string; name: string; description: string; kind: string; xp?: number | null; image?: string | null; archived?: boolean };
+const extraItems = new Map<string, Item>(), productImages = new Map<string, string>(), archivedSkus = new Set<string>();
+export function registerProducts(products: ShopProduct[] | undefined) {
+  for (const p of products ?? []) {
+    if (p.image) productImages.set(p.sku, p.image);
+    if (p.archived) archivedSkus.add(p.sku); else archivedSkus.delete(p.sku);
+    if (p.kind === "food" && p.xp && !ITEMS.some(i => i.sku === p.sku)) extraItems.set(p.sku, { sku: p.sku, name: p.name, kind: "food", description: p.description, xp: p.xp, image: p.image ?? "" });
+  }
+}
+export const allItems = () => [...ITEMS, ...extraItems.values()];
+export const getItem = (sku: string) => ITEMS.find(i => i.sku === sku) ?? extraItems.get(sku);
+export const imageFor = (sku: string) => productImages.get(sku) ?? ITEMS.find(i => i.sku === sku)?.image;
+export const isArchived = (sku: string) => archivedSkus.has(sku);
 export const stageForLevel = (level: number) => level >= 20 ? 3 : level >= 10 ? 2 : 1;
 export const nextLevelXp = (level: number) => level >= 30 ? 0 : 40 + (level - 1) * 10;
 export function addExperience(level: number, xp: number, amount: number) {

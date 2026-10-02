@@ -1,15 +1,16 @@
 import { createHash } from "node:crypto";
+import { registerProducts } from "./catalog";
 import { applyAction, type FarmDocument, type StoredUser, FarmError } from "./domain";
 
 const cookieName = "petclass_session";
 export function tokenOf(request: Request) { return request.headers.get("cookie")?.split(";").map(v => v.trim()).find(v => v.startsWith(`${cookieName}=`))?.slice(cookieName.length + 1) || ""; }
 export function sessionCookie(request: Request, token: string) { return `${cookieName}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${token ? 7200 : 0}${new URL(request.url).protocol === "https:" ? "; Secure" : ""}`; }
 export function json(data: unknown, status = 200, cookie?: string) { return Response.json(data, { status, headers: { "Cache-Control": "no-store, private", "X-Content-Type-Options": "nosniff", ...(cookie ? { "Set-Cookie": cookie } : {}) } }); }
-export async function payload(request: Request) {
+export async function payload(request: Request, maxBytes = 16384) {
   if (request.headers.get("origin") !== new URL(request.url).origin || request.headers.get("sec-fetch-site") === "cross-site") throw new FarmError("허용되지 않은 요청입니다.", 403);
   if (!request.headers.get("content-type")?.includes("application/json")) throw new FarmError("JSON 요청이 필요합니다.", 415);
   const reader=request.body?.getReader(); let size=0; const chunks:Uint8Array[]=[];
-  if(reader) for(;;) {const {value,done}=await reader.read();if(done)break;size+=value.length;if(size>16384){await reader.cancel();throw new FarmError("요청이 너무 큽니다.",413);}chunks.push(value);}
+  if(reader) for(;;) {const {value,done}=await reader.read();if(done)break;size+=value.length;if(size>maxBytes){await reader.cancel();throw new FarmError("요청이 너무 큽니다.",413);}chunks.push(value);}
   let body;try{body=JSON.parse(Buffer.concat(chunks).toString());}catch{throw new FarmError("요청 형식을 확인해 주세요.");}
   if(!body||typeof body!=="object"||Array.isArray(body))throw new FarmError("요청 형식을 확인해 주세요.");return body as Record<string,unknown>;
 }
@@ -27,13 +28,13 @@ export async function login(request:Request,body:Record<string,unknown>) {
 }
 export async function farmAction(token:string,body:Record<string,unknown>) {
   const action=String(body.action||"");
-  if(["purchase","refund","points","price"].includes(action))return gateway(action,token,body);
+  if(["purchase","refund","points","price","addProduct","removeProduct","reorderProducts"].includes(action))return gateway(action,token,body);
   if(!["choosePet","useItem","representative","grant","adjustLevel"].includes(action))throw new FarmError("지원하지 않는 작업입니다.",400);
   if(typeof body.requestId!=="string"||!/^[a-zA-Z0-9-]{12,80}$/.test(body.requestId))throw new FarmError("요청 번호를 확인해 주세요.");
   const fingerprint=createHash("sha256").update(JSON.stringify(Object.keys(body).sort().map(k=>[k,body[k]]))).digest("hex");
   const replay=await gateway("request",token,{requestId:body.requestId,fingerprint});if(replay)return replay;
   for(let attempt=0;attempt<4;attempt++) {
-    const state=await gateway("state",token);const actor=state.user;if(!actor)throw new FarmError("다시 로그인해 주세요.",401);
+    const state=await gateway("state",token);registerProducts(state.products);const actor=state.user;if(!actor)throw new FarmError("다시 로그인해 주세요.",401);
     const target=actor.role==="teacher"?state.students.find((s:StoredUser)=>s.id===body.studentId):actor;if(!target)throw new FarmError("학생을 선택해 주세요.");
     const row=actor.role==="teacher"?target:{...actor,pets:state.pets,inventory:state.inventory,claimedStarter:state.claimedStarter,version:state.version};
     const stored={...row,passwordHash:"",authVersion:1,mustChangePassword:false} as StoredUser;
