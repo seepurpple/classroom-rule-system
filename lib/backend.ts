@@ -37,8 +37,8 @@ export async function farmAction(token:string,body:Record<string,unknown>) {
     const state=await gateway("state",token);registerProducts(state.products);const actor=state.user;if(!actor)throw new FarmError("다시 로그인해 주세요.",401);
     const target=actor.role==="teacher"?state.students.find((s:StoredUser)=>s.id===body.studentId):actor;if(!target)throw new FarmError("학생을 선택해 주세요.");
     const row=actor.role==="teacher"?target:{...actor,pets:state.pets,inventory:state.inventory,claimedStarter:state.claimedStarter,version:state.version};
-    const stored={...row,passwordHash:"",authVersion:1,mustChangePassword:false} as StoredUser;
-    const doc:FarmDocument={className:"1학년 3반",users:actor.role==="teacher"?[{...actor,passwordHash:"",authVersion:1,mustChangePassword:false,claimedStarter:true,pets:[],inventory:[]} as StoredUser,stored]:[stored]};
+    const stored=row as StoredUser;
+    const doc:FarmDocument={className:"1학년 3반",users:actor.role==="teacher"?[{...actor,claimedStarter:true,pets:[],inventory:[]} as StoredUser,stored]:[stored]};
     let outcome;
     if(action==="useItem") {
       if(typeof body.quantity!=="number"||!Number.isInteger(body.quantity)||body.quantity<1||body.quantity>999)throw new FarmError("사용 수량을 확인해 주세요.");

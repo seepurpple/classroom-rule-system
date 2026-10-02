@@ -1,8 +1,7 @@
 "use client";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { supabase } from "./supabase";
-import "./supabase.css";
-import "./ledger.css";
+import "./classroom.css";
 
 type Role = { id: string; name: string; capacity: number; salary: number };
 type Student = { number: number; roleId: string | null; code?: string; balance?: number };

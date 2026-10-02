@@ -13,8 +13,6 @@ export type FarmState = {
   inventory: Grant[];
   logs: LogEntry[];
 };
-export type Credential = { loginId: string; name: string; password: string };
-export type ApiResult = { state: FarmState; credentials?: Credential[]; message?: string; error?: string };
 
 // POST /api/farm uses the existing classroom identity through an HttpOnly session.
 // login: {role,code}; logout: {}; purchase: {sku,quantity,expectedPrice,requestId};

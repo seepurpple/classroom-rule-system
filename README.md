@@ -31,8 +31,8 @@ npm run build
 PORT=3016 npm start
 ```
 
-2026-10-01 마이그레이션은 기존 프로젝트에 적용되었습니다. 과거 마이그레이션에는 최초 스키마 전체가 포함되지 않으므로 빈 DB 초기화용으로 사용하지 않습니다. 운영 DB에서 `db reset`을 실행하지 않습니다.
+`supabase/migrations/`는 운영 DB에 적용한 변경 기록입니다(Supabase SQL Editor에서 순서대로 실행). 과거 마이그레이션에는 최초 스키마 전체가 포함되지 않으므로 빈 DB 초기화용으로 사용하지 않습니다. 운영 DB에서 `db reset`을 실행하지 않습니다.
 
-[통합·검증 기록](docs/IMPLEMENTATION.md) · [진화 도감](docs/screenshots/dex-desktop.png)
+학생 번호 0번은 테스트 계정입니다. 학생 화면과 학급 통계에는 나타나지 않습니다.
 
-PNG 원본: `assets/source/` · 웹 이미지: `public/assets/` · 비공개 전환 전 백업: `data/pre-integration-backup.json`
+웹 이미지: `public/assets/`

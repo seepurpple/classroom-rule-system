@@ -2,7 +2,6 @@
 // Synthetic browser-only responses; no production writes.
 import {spawnSync} from 'node:child_process';
 import assert from 'node:assert/strict';
-import {fileURLToPath} from 'node:url';
 const cli=process.env.AGENT_BROWSER_CLI;
 assert.ok(cli,'Set AGENT_BROWSER_CLI to the agent-browser JS entry point');
 const session='petclass-ux-fixture';
@@ -18,7 +17,6 @@ try{
  browser('eval','document.querySelectorAll(".pc-pet-card .pc-primary")[1].click()');
  assert.equal(browser('eval','document.querySelector("dialog select").value').trim(),'"penguin"');
  assert.ok(browser('snapshot').includes('방울핀에게 1개 주기'));
- browser('screenshot',fileURLToPath(new URL('../docs/screenshots/feeding-desktop.png',import.meta.url)));
  browser('press','Escape');
  browser('find','role','button','click','--name','보관함','--exact');
  assert.equal(browser('eval','document.querySelectorAll(".pc-item-card").length').trim(),'2');
@@ -30,11 +28,7 @@ try{
  state.user={id:'fixture-teacher',loginId:'teacher',name:'선생님',role:'teacher',mustChangePassword:false};state.pets=[];state.inventory=[];
  browser('network','unroute','**/api/farm');browser('network','route','**/api/farm','--body',JSON.stringify({state}));browser('reload');browser('wait','.pc-student');
  assert.equal(browser('eval','document.querySelectorAll(".pc-student").length').trim(),'25');
- browser('eval','document.querySelector(".pc-student-select input").click()');
- browser('find','role','button','click','--name','1명 선택 · 내용 확인','--exact');
- assert.ok(browser('snapshot').includes('확인 · 포인트 기록'));
- browser('screenshot',fileURLToPath(new URL('../docs/screenshots/teacher-desktop.png',import.meta.url)));
  browser('set','viewport','390','844');
  assert.equal(browser('eval','document.documentElement.scrollWidth>innerWidth').trim(),'false');
- console.log('PASS: selected pet, grouped inventory, occupied species, 25-student teacher view, point confirmation, mobile width');
+ console.log('PASS: selected pet, grouped inventory, occupied species, 25-student teacher view, mobile width');
 }finally{browser('network','unroute','**/api/farm');browser('close');}

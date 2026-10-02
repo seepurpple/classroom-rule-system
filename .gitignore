@@ -44,3 +44,4 @@ yarn-error.log*
 # local tooling
 /supabase/.temp/
 /data/
+/tsconfig.tsbuildinfo

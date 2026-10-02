@@ -1,13 +1,12 @@
 import { addExperience, evolutionName, getItem, getSpecies, stageForLevel } from "./catalog";
-import type { Account, FarmState, LogEntry, Student } from "./types";
+import type { LogEntry, Student } from "./types";
 
 export class FarmError extends Error {
   constructor(message: string, public status = 400) { super(message); }
 }
-export type StoredUser = Student & { passwordHash: string; authVersion: number; claimedStarter: boolean };
+export type StoredUser = Student & { claimedStarter: boolean };
 export type FarmDocument = { className: string; users: StoredUser[] };
 export type Payload = Record<string, unknown> & { action: string; requestId: string };
-export type Prepared = { users?: StoredUser[]; passwordHash?: string };
 
 export function requiredText(value: unknown, label: string, max = 200, min = 1): string {
   if (typeof value !== "string" || value.trim().length < min || value.trim().length > max || Array.from(value).some(c => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127)) {
@@ -18,18 +17,6 @@ export function requiredText(value: unknown, label: string, max = 200, min = 1):
 export function integer(value: unknown, label: string, min: number, max: number): number {
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < min || value > max) throw new FarmError(`${label}: ${min}~${max} 사이 정수를 입력해 주세요.`);
   return value;
-}
-export function account(user: StoredUser): Account {
-  return { id: user.id, loginId: user.loginId, name: user.name, role: user.role, mustChangePassword: user.mustChangePassword };
-}
-export function publicState(doc: FarmDocument | null, user: StoredUser | undefined, logs: LogEntry[] = []): FarmState {
-  return {
-    needsSetup: !doc, user: user ? account(user) : null, className: doc?.className ?? "ClassFarm",
-    students: user?.role === "teacher" ? doc!.users.filter(u => u.role === "student").map(u => ({ ...account(u), pets: u.pets, inventory: u.inventory })) : [],
-    pets: user?.role === "student" ? user.pets : [],
-    inventory: user?.role === "student" ? user.inventory : [],
-    logs: user ? logs : [],
-  };
 }
 function student(doc: FarmDocument, id: unknown): StoredUser {
   const result = doc.users.find(u => u.id === id && u.role === "student");
@@ -60,31 +47,15 @@ function learnNaturalSkills(pet: ReturnType<typeof petFor>) {
 }
 
 // Mutates a private copy; the server commits this document and its audit entry atomically.
-export function applyAction(doc: FarmDocument, actorId: string, body: Payload, prepared: Prepared = {}): { message: string; log: LogEntry } {
+export function applyAction(doc: FarmDocument, actorId: string, body: Payload): { message: string; log: LogEntry } {
   const actor = doc.users.find(u => u.id === actorId);
   if (!actor) throw new FarmError("다시 로그인해 주세요.", 401);
-  if (actor.mustChangePassword && body.action !== "changePassword") throw new FarmError("먼저 초기 비밀번호를 변경해 주세요.", 403);
-  const teacherActions = ["createStudents", "resetPassword", "grant", "revoke", "adjustLevel"];
+  const teacherActions = ["grant", "adjustLevel"];
   const studentActions = ["choosePet", "useItem", "representative"];
   if ((teacherActions.includes(body.action) && actor.role !== "teacher") || (studentActions.includes(body.action) && actor.role !== "student")) throw new FarmError("이 작업을 할 권한이 없습니다.", 403);
   let message = "";
   let studentId: string | null = actor.role === "student" ? actor.id : null;
-  if (body.action === "createStudents") {
-    const users = prepared.users;
-    if (!users?.length || users.length !== integer(body.count, "학생 수", 1, 100)) throw new FarmError("생성할 학생 정보를 확인해 주세요.");
-    if (doc.users.filter(u => u.role === "student").length + users.length > 100) throw new FarmError("한 학급은 최대 100명까지 등록할 수 있습니다.", 409);
-    if (users.some(u => doc.users.some(old => old.loginId === u.loginId))) throw new FarmError("이미 사용 중인 로그인 ID가 있습니다. 시작 번호를 변경해 주세요.", 409);
-    doc.users.push(...users);
-    message = `학생 계정 ${users.length}개 발급`;
-  } else if (body.action === "changePassword" || body.action === "resetPassword") {
-    const target = body.action === "changePassword" ? actor : student(doc, body.studentId);
-    if (!prepared.passwordHash) throw new FarmError("비밀번호 변경 정보를 확인해 주세요.");
-    target.passwordHash = prepared.passwordHash;
-    target.authVersion++;
-    target.mustChangePassword = body.action === "resetPassword";
-    studentId = target.role === "student" ? target.id : null;
-    message = `${target.name} 비밀번호 ${body.action === "resetPassword" ? "재발급" : "변경"}`;
-  } else if (body.action === "grant") {
+  if (body.action === "grant") {
     const target = student(doc, body.studentId);
     const item = getItem(requiredText(body.sku, "아이템", 80));
     if (!item) throw new FarmError("등록되지 않은 아이템입니다.");
@@ -95,16 +66,6 @@ export function applyAction(doc: FarmDocument, actorId: string, body: Payload, p
     target.inventory.push({ id: crypto.randomUUID(), sku: item.sku, quantity, remaining: quantity, reference, note, createdAt: new Date().toISOString(), revoked: false });
     studentId = target.id;
     message = `${target.name}에게 ${item.name} ${quantity}개 지급 · 구매 ${reference}${note ? ` · ${note}` : ""}`;
-  } else if (body.action === "revoke") {
-    const target = student(doc, body.studentId);
-    const grant = grantFor(target, body.grantId);
-    const note = requiredText(body.note, "회수 사유", 300);
-    if (grant.revoked || grant.remaining < 1) throw new FarmError("이미 사용했거나 회수한 아이템입니다.", 409);
-    const amount = grant.remaining;
-    grant.remaining = 0;
-    grant.revoked = true;
-    studentId = target.id;
-    message = `${target.name}의 ${getItem(grant.sku)?.name ?? "판매 종료 아이템"} 미사용 ${amount}개 회수 · ${note}`;
   } else if (body.action === "choosePet") {
     const species = getSpecies(requiredText(body.speciesId, "펫 종", 50));
     if (!species) throw new FarmError("등록되지 않은 펫 종입니다.");
