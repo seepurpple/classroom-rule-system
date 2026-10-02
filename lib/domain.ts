@@ -51,7 +51,7 @@ export function applyAction(doc: FarmDocument, actorId: string, body: Payload): 
   const actor = doc.users.find(u => u.id === actorId);
   if (!actor) throw new FarmError("다시 로그인해 주세요.", 401);
   const teacherActions = ["grant", "adjustLevel"];
-  const studentActions = ["choosePet", "useItem", "representative"];
+  const studentActions = ["choosePet", "useItem", "representative", "release"];
   if ((teacherActions.includes(body.action) && actor.role !== "teacher") || (studentActions.includes(body.action) && actor.role !== "student")) throw new FarmError("이 작업을 할 권한이 없습니다.", 403);
   let message = "";
   let studentId: string | null = actor.role === "student" ? actor.id : null;
@@ -111,6 +111,11 @@ export function applyAction(doc: FarmDocument, actorId: string, body: Payload): 
     const chosen = petFor(actor, body.petId);
     actor.pets.forEach(p => { p.representative = p.id === chosen.id; });
     message = `${actor.name} · 대표 펫을 ${evolutionName(chosen.speciesId, chosen.stage)}(으)로 변경`;
+  } else if (body.action === "release") {
+    const pet = petFor(actor, body.petId);
+    actor.pets.splice(actor.pets.indexOf(pet), 1);
+    if (pet.representative && actor.pets[0]) actor.pets[0].representative = true;
+    message = `${actor.name} · ${evolutionName(pet.speciesId, pet.stage)} Lv.${pet.level}을(를) 놓아줌`;
   } else if (body.action === "adjustLevel") {
     const target = student(doc, body.studentId);
     const pet = petFor(target, body.petId);

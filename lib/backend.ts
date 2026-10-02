@@ -29,7 +29,7 @@ export async function login(request:Request,body:Record<string,unknown>) {
 export async function farmAction(token:string,body:Record<string,unknown>) {
   const action=String(body.action||"");
   if(["purchase","refund","points","price","addProduct","removeProduct","reorderProducts","gameConfig","gameTiming","gamePlay","gameResult","timingStart","timingStop"].includes(action))return gateway(action,token,body);
-  if(!["choosePet","useItem","representative","grant","adjustLevel"].includes(action))throw new FarmError("지원하지 않는 작업입니다.",400);
+  if(!["choosePet","useItem","representative","release","grant","adjustLevel"].includes(action))throw new FarmError("지원하지 않는 작업입니다.",400);
   if(typeof body.requestId!=="string"||!/^[a-zA-Z0-9-]{12,80}$/.test(body.requestId))throw new FarmError("요청 번호를 확인해 주세요.");
   const fingerprint=createHash("sha256").update(JSON.stringify(Object.keys(body).sort().map(k=>[k,body[k]]))).digest("hex");
   const replay=await gateway("request",token,{requestId:body.requestId,fingerprint});if(replay)return replay;
