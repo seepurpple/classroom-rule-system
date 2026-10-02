@@ -17,7 +17,7 @@ export function PetStatsEditor({ pet, busy, save }: { pet: Pet; busy: boolean; s
     if (valid && changed && !busy) await save(draft);
   }}>
     <div className="pc-stats-summary" aria-live="polite"><strong>남은 포인트 {remaining}</strong><span>총 획득 {earned} · 스탯별 최대 +{limit}</span></div>
-    <p className="pc-subtle">레벨업마다 +3, Lv.10 첫 진화 시 +7. 한 스탯에는 총 획득 포인트의 40%까지 투자해요. 소수점은 버려요.</p>
+    <p className="pc-subtle">레벨업마다 +3, Lv.10·20 진화 때마다 +7. 한 스탯에는 총 획득 포인트의 40%까지 투자해요. 소수점은 버려요.</p>
     <div className="pc-stat-list">{STAT_KEYS.map(key => <div className="pc-stat-row" key={key}>
       <div><label htmlFor={`stat-${pet.id}-${key}`}>{STAT_LABELS[key]}</label><small>기본 {base[key]} + 투자 {draft[key]}</small></div>
       <strong aria-label={`${STAT_LABELS[key]} 합계`}>{totals[key]}</strong>

@@ -1,4 +1,4 @@
-import { getSpecies } from "./catalog";
+import { getSpecies, stageForLevel } from "./catalog";
 import type { Pet, Stats, StatKey } from "./types";
 
 export const STAT_KEYS: StatKey[] = ["hp", "attack", "specialAttack", "defense", "specialDefense", "speed"];
@@ -9,7 +9,7 @@ export const statTotal = (stats: Stats) => STAT_KEYS.reduce((sum, key) => sum + 
 // Derived from level: old pets receive their points and repeated evolution cannot mint extras.
 export function earnedStatPoints(level: number) {
   if (!Number.isInteger(level) || level < 1 || level > 30) throw new Error("잘못된 펫 레벨입니다.");
-  return (level - 1) * 3 + (level >= 10 ? 7 : 0);
+  return (level - 1) * 3 + (stageForLevel(level) - 1) * 7;
 }
 export const statLimit = (level: number) => Math.floor(earnedStatPoints(level) * 2 / 5);
 export function validAllocation(value: unknown, level: number): value is Stats {
