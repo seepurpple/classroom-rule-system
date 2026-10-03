@@ -18,7 +18,11 @@
 .pc-role-rows input,.pc-role-rows select{min-height:42px}
 .pc-role-head{font-size:12px;color:var(--pc-muted);font-weight:700}
 .pc-role-name{display:flex;align-items:center;gap:6px}
-.pc-role-name em{flex:none;font-style:normal;font-size:11px;font-weight:800;background:#fff4c2;color:#7a5a00;border-radius:999px;padding:3px 8px}
+.petclass .pc-rule-badge{flex:none;font-size:11px;font-weight:800;background:#fff4c2;color:#7a5a00;border-radius:999px;padding:4px 9px;min-height:0;cursor:pointer}
+.petclass .pc-rule-badge:hover,.petclass .pc-rule-badge[aria-expanded=true]{background:#ffe48a}
+.pc-rule-info{grid-column:1/-1;background:#fffbe8;border:1px solid #f0d77a;border-radius:12px;padding:12px 16px;font-size:14px;color:#4d3a00}
+.pc-rule-info ul{margin:6px 0 8px;padding-left:20px;line-height:1.7}
+.pc-rule-info small{color:#7a6420;line-height:1.6}
 .pc-row-actions{display:flex;gap:4px;flex-wrap:wrap}
 .pc-row-actions button{min-height:38px;padding:6px 10px}
 .pc-inline-form{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:10px 0}
