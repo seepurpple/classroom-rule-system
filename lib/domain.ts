@@ -1,4 +1,4 @@
-import { addExperience, evolutionName, getItem, getSpecies, stageForLevel } from "./catalog";
+import { addExperience, evolutionName, getItem, getSpecies, stageForLevel, learnedSkills } from "./catalog";
 import type { LogEntry, Student } from "./types";
 import { emptyStats, validAllocation, statLimit, statTotal } from "./stats";
 
@@ -27,6 +27,7 @@ function student(doc: FarmDocument, id: unknown): StoredUser {
 function petFor(owner: StoredUser, id: unknown) {
   const pet = owner.pets.find(p => p.id === id);
   if (!pet) throw new FarmError("내 펫을 찾을 수 없습니다.", 404);
+  pet.skills = learnedSkills(pet);
   return pet;
 }
 function grantFor(owner: StoredUser, id: unknown) {

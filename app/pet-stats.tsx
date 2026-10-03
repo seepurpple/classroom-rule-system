@@ -27,7 +27,7 @@ export function PetStatsEditor({ pet, busy, save }: { pet: Pet; busy: boolean; s
         <button type="button" aria-label={`${STAT_LABELS[key]} 1 증가`} disabled={busy || remaining <= 0 || draft[key] >= limit} onClick={() => setDraft({ ...draft, [key]: draft[key] + 1 })}>+</button>
       </div>
     </div>)}</div>
-    <p className="pc-subtle">배분은 무료로 다시 바꿀 수 있어요. 저장을 눌러야 반영돼요.</p>
+    <p className="pc-subtle">실제 체력은 체력 스탯 × 3 = {totals.hp * 3}이에요. 배분은 무료로 다시 바꿀 수 있어요. 저장을 눌러야 반영돼요.</p>
     {!valid && <p role="alert" className="pc-warn">스탯별 한도와 남은 포인트를 확인해 주세요. 0 이상의 정수만 입력해요.</p>}
     <div className="pc-stats-actions"><button type="button" className="pc-text" disabled={busy || statTotal(draft) === 0} onClick={() => setDraft(emptyStats())}>배분 초기화</button><button className="pc-primary" disabled={busy || !valid || !changed}>{busy ? "저장 중…" : "스탯 배분 저장"}</button></div>
   </form>;
