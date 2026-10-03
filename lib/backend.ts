@@ -20,15 +20,17 @@ export async function gateway(action:string,token:string,body:Record<string,unkn
   const result=await response.json();if(!response.ok)throw new FarmError(result.message||"데이터를 불러오지 못했어요.",response.status===401||response.status===403?response.status:400);if(result?.error)throw new FarmError(result.error,result.status||400);return result;
 }
 export async function login(request:Request,body:Record<string,unknown>) {
-  if(body.role!=="teacher"&&body.role!=="student")throw new FarmError("학생 또는 교사를 선택해 주세요.");
-  if(typeof body.code!=="string"||!/^\d{4}$/.test(body.code))throw new FarmError("기존 고유 번호 4자리를 입력해 주세요.");
+  const action=String(body.action);
+  if(action==="login"&&(typeof body.code!=="string"||!/^\d{4}$/.test(body.code)||typeof body.classId!=="string"))throw new FarmError("반을 고르고 고유 번호 4자리를 입력해 주세요.");
+  if(action!=="login"&&(typeof body.email!=="string"||typeof body.password!=="string"))throw new FarmError("이메일과 비밀번호를 입력해 주세요.");
   // Vercel overwrites this header. Local access shares one limiter key.
-  const ip=process.env.VERCEL?request.headers.get("x-vercel-forwarded-for")||"unknown":"local";
-  return gateway("login","",{...body,limiter:createHash("sha256").update(`${ip}:${body.role}`).digest("hex")});
+  const ip=createHash("sha256").update(process.env.VERCEL?request.headers.get("x-vercel-forwarded-for")||"unknown":"local").digest("hex").slice(0,32);
+  const fields=action==="login"?{classId:body.classId,code:body.code}:action==="signup"?{email:body.email,password:body.password,displayName:body.displayName,className:body.className}:{email:body.email,password:body.password};
+  return gateway(action,"",{...fields,ip});
 }
 export async function farmAction(token:string,body:Record<string,unknown>) {
   const action=String(body.action||"");
-  if(["purchase","refund","points","price","addProduct","removeProduct","reorderProducts","gameConfig","gameTiming","gamePlay","gameResult","timingStart","timingStop"].includes(action))return gateway(action,token,body);
+  if(["purchase","refund","points","price","addProduct","removeProduct","reorderProducts","gameConfig","gameTiming","gamePlay","gameResult","timingStart","timingStop","classList","changePassword","classCreate","classUpdate","roleSave","roleDelete","roleOrder","presetSave","presetDelete","productLimit","adminList","adminReview","adminSetPassword","adminExport","adminResetClass","adminDeleteAccount"].includes(action))return gateway(action,token,body);
   if(!["choosePet","useItem","representative","release","allocateStats","grant","adjustLevel"].includes(action))throw new FarmError("지원하지 않는 작업입니다.",400);
   if(typeof body.requestId!=="string"||!/^[a-zA-Z0-9-]{12,80}$/.test(body.requestId))throw new FarmError("요청 번호를 확인해 주세요.");
   const fingerprint=createHash("sha256").update(JSON.stringify(Object.keys(body).sort().map(k=>[k,body[k]]))).digest("hex");

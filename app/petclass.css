@@ -2,3 +2,36 @@
 .petclass .pc-manage{width:100%;margin-bottom:8px;background:#fff;border:1px solid #cfdac6;font-weight:700}.pc-pet-detail{display:grid;gap:18px}.pc-pet-detail-head{display:grid;grid-template-columns:150px 1fr;gap:16px;align-items:center}.pc-pet-detail-head .pc-art{height:150px}.pc-pet-detail-head p{margin:10px 0 0}.pc-pet-detail section{border-top:1px solid var(--pc-line);padding-top:14px}.pc-pet-detail h3{font-size:16px;margin-bottom:10px}.pc-skill-list{display:grid;gap:8px}.petclass .pc-skill-list label{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;align-items:center;margin:0;background:#f4f7f0;border-radius:12px;padding:10px 14px}.pc-skill-list input{width:18px;min-height:18px;grid-row:span 2}.pc-skill-list small{grid-column:2}.pc-skill-list .pc-locked{opacity:.55}.petclass .pc-release{width:100%;min-height:50px;background:#b5462f;color:#fff;font-weight:800}.petclass .pc-release:hover:not(:disabled){background:#963822}
 
 .pc-stats-summary{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:12px 14px;background:#eaf0e1;border-radius:12px}.pc-stats-summary span{font-size:12px;align-self:center}.pc-stat-list{display:grid;gap:6px}.pc-stat-row{display:grid;grid-template-columns:minmax(0,1fr) 36px 146px;gap:10px;align-items:center;border-bottom:1px solid var(--pc-line);padding:9px 0}.petclass .pc-stat-row label{margin:0;font-size:14px;font-weight:700}.pc-stat-row small{display:block;font-size:11px;color:var(--pc-muted)}.pc-stat-row>strong{text-align:center;font-size:20px}.pc-stat-controls{display:flex;gap:4px;align-items:center}.petclass .pc-stat-controls button{padding:0;min-height:44px;min-width:40px;font-size:20px}.petclass .pc-stat-controls input{width:58px;min-height:44px;padding:6px;text-align:center}.pc-stats-actions{display:flex;justify-content:space-between;gap:12px;margin-top:12px}@media(max-width:420px){.pc-stat-row{grid-template-columns:minmax(0,1fr) 28px 138px;gap:5px}.petclass .pc-stat-controls input{width:50px}.pc-stat-row>strong{font-size:18px}}
+.pc-login-form .pc-plain,.pc-login-form select{font-size:16px;letter-spacing:0;height:50px}
+.pc-login-form .pc-text{width:100%;text-align:center}
+.pc-login-form form>small{display:block;margin-top:8px;font-size:12px}
+.pc-whoami{font-size:18px;color:var(--pc-ink)}
+.pc-callout{background:#fff4c2;border:2px solid #e8b100;border-radius:12px;padding:14px 16px;font-weight:800;color:#5b4300;margin:14px 0}
+.pc-setup{max-width:980px;margin:0 auto;padding:28px 20px 60px}
+.pc-setup h1{font-size:clamp(28px,4vw,40px);margin:6px 0 10px}
+.pc-setup-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:26px;gap:12px}
+.pc-setup-head .pc-text{width:auto;padding:8px 12px}
+.pc-role-rows{display:grid;gap:8px;margin:12px 0}
+.pc-role-rows>div{display:grid;grid-template-columns:minmax(120px,1fr) 84px 104px auto;gap:8px;align-items:center}
+.pc-role-edit>div{grid-template-columns:minmax(120px,1fr) 76px 96px 48px auto}
+.pc-preset-edit>div{grid-template-columns:86px minmax(120px,1fr) 96px auto auto}
+.pc-role-rows input,.pc-role-rows select{min-height:42px}
+.pc-role-head{font-size:12px;color:var(--pc-muted);font-weight:700}
+.pc-role-name{display:flex;align-items:center;gap:6px}
+.pc-role-name em{flex:none;font-style:normal;font-size:11px;font-weight:800;background:#fff4c2;color:#7a5a00;border-radius:999px;padding:3px 8px}
+.pc-row-actions{display:flex;gap:4px;flex-wrap:wrap}
+.pc-row-actions button{min-height:38px;padding:6px 10px}
+.pc-inline-form{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:10px 0}
+.pc-inline-form input,.pc-inline-form select{flex:1 1 120px;width:auto}
+.pc-inline-form button,.pc-inline-form .pc-primary{width:auto;margin:0;flex:none}
+.petclass .pc-check{display:flex;align-items:center;gap:6px;margin:0;white-space:nowrap}
+.pc-check input{width:18px;min-height:18px}
+.pc-class-settings{margin-top:25px}
+.pc-account{border-top:1px solid var(--pc-line);padding:16px 0}
+.pc-account header{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.pc-account header div{display:grid;gap:2px}
+.pc-account header span{font-size:13px;color:var(--pc-muted)}
+.pc-account summary{cursor:pointer;font-weight:700;margin:10px 0}
+.pc-danger-zone{border:1px solid #efc9bd;background:#fdf6f3;border-radius:12px;padding:12px 14px;margin-top:10px}
+.pc-danger-zone .pc-text{width:auto}
+@media(max-width:720px){.pc-role-rows>div,.pc-role-edit>div,.pc-preset-edit>div{grid-template-columns:1fr 1fr}.pc-role-head{display:none!important}.pc-role-name{grid-column:1/-1}.pc-row-actions{grid-column:1/-1}}
