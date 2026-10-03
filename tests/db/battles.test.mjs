@@ -1,0 +1,74 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { db,g,one,tokens,actors,teacher,pet,action,battleAction,startDuel,advanceDuel } from "../fixtures/battle-db.mjs";
+let battleId;
+test('challenge, reject, approve, start, private choices, turns, switch, forfeit, replay',async()=>{
+ const requestId=crypto.randomUUID();let lobby=await battleAction(tokens[0],{action:'challenge',requestId,opponentId:actors[1].id});battleId=requestId;
+ assert.equal(lobby.battles.length,1);assert.equal(lobby.battles[0].status,'pending');
+ lobby=await battleAction(tokens[0],{action:'challenge',requestId,opponentId:actors[1].id});assert.equal(lobby.battles.length,1);
+ await assert.rejects(action(tokens[0],'start',{battleId}));
+ await assert.rejects(action(tokens[0],'respond',{battleId,accept:true}));
+ await assert.rejects(action(tokens[2],'respond',{battleId,accept:true}));
+ assert.equal((await g('battleLobby',tokens[2])).battles.length,0);
+ await action(tokens[1],'respond',{battleId,accept:false});assert.equal((await g('battleLobby',tokens[0])).battles[0].status,'rejected');
+ lobby=await action(tokens[0],'challenge',{opponentId:actors[1].id});battleId=lobby.battles.find(b=>b.status==='pending').id;
+ await action(tokens[1],'respond',{battleId,accept:true});
+ await Promise.all(tokens.slice(0,2).map(t=>action(t,'start',{battleId})));
+ lobby=await g('battleLobby',tokens[0]);let b=lobby.battles.find(b=>b.id===battleId);assert.equal(b.status,'active');assert.equal(b.data.teams[0].length,2);
+ const moveId=crypto.randomUUID(),move={action:'move',requestId:moveId,battleId,turn:1,kind:'skill',name:'껍질 숨기'};
+ await battleAction(tokens[0],move);await battleAction(tokens[0],move);
+ b=(await g('battleLobby',tokens[1])).battles.find(b=>b.id===battleId);assert.deepEqual(b.data.ready,[true,false]);assert.equal(b.data.choices,undefined);
+ await assert.rejects(action(tokens[0],'move',{battleId,turn:1,kind:'skill',name:'씨뱉기'}));
+ await action(tokens[1],'move',{battleId,turn:1,kind:'skill',name:'껍질 숨기'});
+ await battleAction(tokens[0],move);b=(await g('battleLobby',tokens[0])).battles.find(b=>b.id===battleId);assert.equal(b.data.turn,2);assert.equal(b.data.teams[0][0].ranks.defense,1);
+ await assert.rejects(action(tokens[0],'move',{battleId,turn:1,kind:'skill',name:'씨뱉기'}));
+ await action(tokens[0],'move',{battleId,turn:2,kind:'switch',petId:'p0b'});await action(tokens[1],'move',{battleId,turn:2,kind:'skill',name:'껍질 숨기'});
+ b=(await g('battleLobby',tokens[0])).battles.find(b=>b.id===battleId);assert.equal(b.data.active[0],1);assert.equal(b.data.teams[0][0].ranks.defense,0);
+ const forfeiture={action:'move',requestId:crypto.randomUUID(),battleId,kind:'forfeit'};await battleAction(tokens[0],forfeiture);await battleAction(tokens[0],forfeiture);
+ b=(await g('battleLobby',tokens[1])).battles.find(b=>b.id===battleId);assert.equal(b.status,'finished');assert.equal(b.data.winner,1);
+ const farm=(await one('select data from private.petclass_farms where student_id=$1',[actors[0].id])).data;assert.equal(farm.pets[0].hp,undefined);assert.equal(farm.pets[0].statAllocation,undefined);
+});
+test('teacher publishes tournament once, student sees it, other roles cannot publish',async()=>{
+ const requestId=crypto.randomUUID(),body={action:'tournamentCreate',requestId,name:'우리 반 챔피언전',conditions:'참여한 학생',petLimit:2,prize:'간식'};
+ await assert.rejects(battleAction(tokens[0],body));
+ await battleAction(teacher,body);await battleAction(teacher,body);
+ const lobby=await g('battleLobby',tokens[0]);assert.equal(lobby.tournaments.length,1);assert.equal(lobby.tournaments[0].petLimit,2);
+ await assert.rejects(battleAction(teacher,{...body,requestId:crypto.randomUUID(),petLimit:4}));
+});
+test('cross-class students, internal HTTP commands, direct table access are blocked',async()=>{
+ const teacherId=(await one("insert into auth.users(email,encrypted_password) values('other@test.kr','unused') returning id")).id;
+ await db.query("update private.profiles set approval_status='approved' where id=$1",[teacherId]);
+ const c=(await one("insert into private.classes(teacher_id,name,student_count) values($1,'다른 반',1) returning id",[teacherId])).id;
+ const other=(await one("insert into public.classroom_students(class_id,student_no,access_code) values($1,1,'9876') returning id",[c])).id;
+ const otherToken=(await g('login','',{classId:c,code:'9876',ip:'other'})).token;
+ await assert.rejects(action(tokens[0],'challenge',{opponentId:other}));
+ const lobby=await g('battleLobby',otherToken);assert.equal(lobby.battles.length,0);assert.equal(lobby.tournaments.length,0);assert.equal(lobby.students.length,1);
+ await assert.rejects(action(tokens[0],'battleCommit',{battleId,data:{winner:0}}));
+ for(const table of ['petclass_battles','petclass_tournaments','petclass_battle_requests'])assert.equal((await one("select has_table_privilege('anon',$1,'select') allowed",['private.'+table])).allowed,false);
+ assert.equal((await one("select has_function_privilege('anon','private.pc_battle_lobby(jsonb)','execute') allowed")).allowed,false);
+});
+test('forced replacements, full-team defeat, priority switching and waiting are validated',()=>{
+ const d=startDuel([[pet('a','seedfox'),pet('b','bubblepenguin')],[pet('c','kilncrab')]]);
+ d.teams[0][0].hp=0;let r=advanceDuel(d,0,{kind:'switch',petId:'b',turn:1});assert.equal(r.active[0],1);assert.equal(r.turn,1);
+ assert.throws(()=>advanceDuel(d,0,{kind:'skill',name:'씨뱉기',turn:1}));assert.throws(()=>advanceDuel(d,1,{kind:'skill',name:'불집기',turn:1}));
+ r.teams[0][1].hp=1;r.teams[1][0].stats.attack=999;r.teams[1][0].stats.speed=999;
+ r=advanceDuel(r,0,{kind:'skill',name:'물총',turn:1});r=advanceDuel(r,1,{kind:'skill',name:'불집기',turn:1},()=>.4);assert.equal(r.winner,1);
+});
+test('simultaneous choices resolve one turn and a student cannot start two active battles',async()=>{
+ let l=await action(tokens[0],'challenge',{opponentId:actors[2].id}),id=l.battles.find(b=>b.status==='pending').id;
+ await action(tokens[2],'respond',{battleId:id,accept:true});await action(tokens[0],'start',{battleId:id});
+ await Promise.all([tokens[0],tokens[2]].map(t=>action(t,'move',{battleId:id,turn:1,kind:'skill',name:'껍질 숨기'})));
+ let b=(await g('battleLobby',tokens[0])).battles.find(b=>b.id===id);assert.equal(b.data.turn,2);assert.deepEqual(b.data.ready,[false,false]);
+ l=await action(tokens[1],'challenge',{opponentId:actors[2].id});const second=l.battles.find(b=>b.status==='pending').id;
+ await action(tokens[2],'respond',{battleId:second,accept:true});await assert.rejects(action(tokens[1],'start',{battleId:second}),/다른 배틀/);
+ await action(tokens[0],'move',{battleId:id,kind:'forfeit'});await action(tokens[1],'start',{battleId:second});
+ b=(await g('battleLobby',tokens[2])).battles.find(b=>b.id===second);assert.equal(b.status,'active');
+});
+test('administrator export includes battles and reset removes all new class activity',async()=>{
+ const exported=(await one('select private.pc_export((select id from private.classes where name=$1)) data',['1학년 3반'])).data;
+ assert.ok(exported.battles.length);assert.ok(exported.tournaments.length);
+ await db.query('select private.pc_clear_class((select id from private.classes where name=$1),false)',['1학년 3반']);
+ assert.equal((await one('select count(*)::int n from private.petclass_battles')).n,0);
+ assert.equal((await one('select count(*)::int n from private.petclass_tournaments')).n,0);
+ assert.equal((await one('select count(*)::int n from private.petclass_battle_requests')).n,0);
+});

@@ -53,7 +53,7 @@ function hurt(fighter: Fighter, damage: number) {
 function heal(fighter: Fighter, amount: number) {
   if (fighter.hp > 0) fighter.hp = round(Math.min(fighter.maxHp, fighter.hp + amount));
 }
-export type BattleEvent = { actor: string; skill?: string; kind: "hit" | "miss" | "failed" | "recharge" | "status" | "dot" | "recoil"; target?: string; damage?: number; critical?: boolean; absoluteDefense?: boolean; reflected?: boolean };
+export type BattleEvent = { actor: string; skill?: string; kind: "hit" | "miss" | "failed" | "recharge" | "status" | "dot" | "recoil" | "switch"; target?: string; damage?: number; critical?: boolean; absoluteDefense?: boolean; reflected?: boolean };
 function executeSkill(actor: Fighter, target: Fighter, skill: Skill, random: Random, events: BattleEvent[]) {
   const event = { actor: actor.id, skill: skill.name };
   if (actor.recharge) {
@@ -103,24 +103,33 @@ function executeSkill(actor: Fighter, target: Fighter, skill: Skill, random: Ran
     events.push({ ...event, kind: "recoil", target: actor.id, damage: hurt(actor, recoil.damage) });
   }
 }
+export type TurnChoice = string | { switchTo: Fighter };
+
 // Pure turn resolution. No permanent pet stats or farm state are mutated.
-export function resolveTurn(fighters: readonly [Fighter, Fighter], choices: readonly [string, string], random: Random = Math.random) {
+export function resolveTurn(fighters: readonly [Fighter, Fighter], choices: readonly [TurnChoice, TurnChoice], random: Random = Math.random) {
   const next = structuredClone(fighters) as [Fighter, Fighter];
   if (next.some(f => f.hp <= 0)) throw new Error("이미 종료된 전투입니다.");
   const skills = next.map((fighter, i) => {
-    const skill = fighter.skills.find(s => s.name === choices[i]);
+    const choice = choices[i];
+    if (typeof choice !== "string") return null;
+    const skill = fighter.skills.find(s => s.name === choice);
     if (!skill) throw new Error("배우지 않은 기술입니다.");
     return skill;
   });
   for (const fighter of next) { fighter.guard = false; fighter.reflect = false; }
-  const priority = next.map((fighter, i) => fighter.recharge ? 0 : skills[i].priority ?? 0);
+  const priority = next.map((fighter, i) => !skills[i] ? 2 : fighter.recharge ? 0 : skills[i]!.priority ?? 0);
   const speed = next.map(fighter => fighter.stats.speed * rankMultiplier(fighter.ranks.speed));
   const difference = priority[0] - priority[1] || speed[0] - speed[1];
   const first = difference === 0 ? (random() < 0.5 ? 0 : 1) : difference > 0 ? 0 : 1;
   const events: BattleEvent[] = [];
   for (const i of [first, 1 - first]) {
     if (next.some(f => f.hp <= 0)) break;
-    executeSkill(next[i], next[1 - i], skills[i], random, events);
+    const choice = choices[i];
+    if (typeof choice !== "string") {
+      if (choice.switchTo.hp <= 0 || choice.switchTo.id === next[i].id) throw new Error("교체할 펫을 확인해 주세요.");
+      next[i] = structuredClone(choice.switchTo);
+      events.push({ actor: next[i].id, kind: "switch" });
+    } else executeSkill(next[i], next[1 - i], skills[i]!, random, events);
   }
   // End-of-turn damage is simultaneous, and stops once direct damage ends battle.
   if (next.every(f => f.hp > 0)) for (const fighter of next) {
