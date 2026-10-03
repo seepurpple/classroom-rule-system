@@ -13,21 +13,23 @@ function Popup({title,close,children}:{title:string;close:()=>void;children:Reac
 type Send=(action:string,body?:Record<string,unknown>)=>Promise<boolean>;
 export function BattleHub({user,visible}:{user:Account;visible:boolean}){
  const [lobby,setLobby]=useState<Lobby|null>(null),[error,setError]=useState(""),[busy,setBusy]=useState(false),[choose,setChoose]=useState(false),[openId,setOpenId]=useState<string|null>(null);
- const dismissed=useRef(new Set<string>());
+ const dismissed=useRef(new Set<string>()),pollingBlocked=useRef(false),fetching=useRef(false);
  const working=useRef(false),sequence=useRef(0),retry=useRef(new Map<string,string>()),mounted=useRef(true);
  const refresh=useCallback(async()=>{
-  if(working.current)return;
+  if(working.current||fetching.current)return;
+  fetching.current=true;
   const seq=++sequence.current;
-  try{const r=await fetch("/api/battle",{cache:"no-store",signal:AbortSignal.timeout(12000)});const data=await r.json();if(!r.ok)throw Error(data.error||"배틀을 불러오지 못했어요.");if(mounted.current&&seq===sequence.current){setLobby(data);setOpenId(current=>current??data.battles.find((b:BattleView)=>b.status==="active"&&!dismissed.current.has(b.id))?.id??null);setError("");}}
+  try{const r=await fetch("/api/battle",{cache:"no-store",signal:AbortSignal.timeout(12000)});const data=await r.json();if(!r.ok){if(seq===sequence.current&&r.status>=400&&r.status<500)pollingBlocked.current=true;throw Error(data.error||"배틀을 불러오지 못했어요.");}if(mounted.current&&seq===sequence.current){pollingBlocked.current=false;setLobby(data);setOpenId(current=>current??data.battles.find((b:BattleView)=>b.status==="active"&&!dismissed.current.has(b.id))?.id??null);setError("");}}
   catch(e){if(mounted.current&&seq===sequence.current)setError(e instanceof Error?e.message:"연결을 확인해 주세요.");}
+  finally{fetching.current=false;}
  },[]);
  useEffect(()=>{
   mounted.current=true;
   // State updates happen only after the awaited HTTP response.
   // eslint-disable-next-line react-hooks/set-state-in-effect
   void refresh();
-  const timer=setInterval(()=>{if(!document.hidden)void refresh();},user.role==="student"?3000:10000);
-  const focus=()=>{if(!document.hidden)void refresh();};window.addEventListener("focus",focus);document.addEventListener("visibilitychange",focus);
+  const timer=setInterval(()=>{if(!document.hidden&&!pollingBlocked.current)void refresh();},user.role==="student"?3000:10000);
+  const focus=()=>{if(!document.hidden&&!pollingBlocked.current)void refresh();};window.addEventListener("focus",focus);document.addEventListener("visibilitychange",focus);
   return()=>{mounted.current=false;clearInterval(timer);window.removeEventListener("focus",focus);document.removeEventListener("visibilitychange",focus);};
  },[refresh,user.role]);
  async function send(action:string,body:Record<string,unknown>={}){
