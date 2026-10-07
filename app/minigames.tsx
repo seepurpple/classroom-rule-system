@@ -8,7 +8,8 @@ export type Play = { id: string; game: string; status: "pending" | "won" | "lost
 export type Api = (action: string, data: Record<string, unknown>) => Promise<false | { play?: Play }>;
 type Three = typeof T;
 type Frame = (dt: number) => void;
-type Setup = (THREE: Three, scene: T.Scene, camera: T.PerspectiveCamera, renderer: T.WebGLRenderer) => Frame | void;
+type RoundedBox = typeof import("three/addons/geometries/RoundedBoxGeometry.js").RoundedBoxGeometry;
+type Setup = (THREE: Three, scene: T.Scene, camera: T.PerspectiveCamera, renderer: T.WebGLRenderer, RoundedBoxGeometry: RoundedBox) => Frame | void;
 
 const money = (v: number) => v.toLocaleString("ko-KR") + "P";
 
@@ -16,23 +17,43 @@ const money = (v: number) => v.toLocaleString("ko-KR") + "P";
 function useScene(mount: RefObject<HTMLDivElement | null>, setup: Setup) {
   useEffect(() => {
     let stop = false, dispose = () => {};
-    void import("three").then(THREE => {
+    void Promise.all([import("three"), import("three/addons/geometries/RoundedBoxGeometry.js"), import("three/addons/environments/RoomEnvironment.js")]).then(([THREE, { RoundedBoxGeometry }, { RoomEnvironment }]) => {
       const el = mount.current; if (stop || !el) return;
       const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       renderer.outputColorSpace = THREE.SRGBColorSpace;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1;
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFShadowMap;
       el.appendChild(renderer.domElement);
       const scene = new THREE.Scene();
+      const room = new RoomEnvironment(), pmrem = new THREE.PMREMGenerator(renderer);
+      const environment = pmrem.fromScene(room, .04); scene.environment = environment.texture; scene.environmentIntensity = .35;
+      room.dispose(); pmrem.dispose();
       const camera = new THREE.PerspectiveCamera(38, 1, .1, 60);
       scene.add(new THREE.HemisphereLight(0xfff8ec, 0x6f7f68, 1.6));
-      const sun = new THREE.DirectionalLight(0xffffff, 1.8); sun.position.set(3, 7, 5); scene.add(sun);
-      const frame = setup(THREE, scene, camera, renderer);
-      const resize = () => { const w = el.clientWidth, h = el.clientHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); };
+      const sun = new THREE.DirectionalLight(0xffffff, 1.8); sun.position.set(3, 7, 5); sun.castShadow = true;
+      sun.shadow.mapSize.set(1024, 1024); sun.shadow.camera.left = -6; sun.shadow.camera.right = 6;
+      sun.shadow.camera.top = 7; sun.shadow.camera.bottom = -6; sun.shadow.normalBias = .035; scene.add(sun);
+      const rim = new THREE.DirectionalLight(0xbddfff, 2); rim.position.set(-4, 4, -3); scene.add(rim);
+      const ground = new THREE.Mesh(new THREE.CircleGeometry(8, 64), new THREE.ShadowMaterial({ opacity: .12 }));
+      ground.rotation.x = -Math.PI / 2; ground.position.y = -.5; ground.receiveShadow = true; scene.add(ground);
+      const frame = setup(THREE, scene, camera, renderer, RoundedBoxGeometry);
+      const resize = () => { const w = el.clientWidth, h = el.clientHeight; if (!w || !h) return; renderer.setSize(w, h, false); camera.aspect = w / h; camera.fov = 2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(38) / 2) * Math.max(1, 1.15 / camera.aspect)) * 180 / Math.PI; camera.updateProjectionMatrix(); };
       const ro = new ResizeObserver(resize); ro.observe(el); resize();
       let last = performance.now(), raf = 0;
       const loop = (now: number) => { frame?.(Math.min(.05, (now - last) / 1000)); last = now; renderer.render(scene, camera); raf = requestAnimationFrame(loop); };
       raf = requestAnimationFrame(loop);
-      dispose = () => { cancelAnimationFrame(raf); ro.disconnect(); renderer.dispose(); renderer.domElement.remove(); };
+      dispose = () => { cancelAnimationFrame(raf); ro.disconnect();
+        const geometries = new Set<T.BufferGeometry>(), materials = new Set<T.Material>(), textures = new Set<T.Texture>();
+        scene.traverse(object => { if (object instanceof THREE.Mesh || object instanceof THREE.LineSegments || object instanceof THREE.Points) {
+          geometries.add(object.geometry);
+          for (const material of Array.isArray(object.material) ? object.material : [object.material]) materials.add(material);
+        } });
+        materials.forEach(material => { for (const value of Object.values(material)) if (value instanceof THREE.Texture) textures.add(value); material.dispose(); });
+        textures.forEach(texture => texture.dispose()); geometries.forEach(geometry => geometry.dispose());
+        environment.dispose(); sun.shadow.dispose(); renderer.dispose(); renderer.domElement.remove(); };
     });
     return () => { stop = true; dispose(); };
   // The scene is built once per open popup; game state lives in refs.
@@ -66,29 +87,38 @@ export function ClawGame({ config, balance, api }: { config: GameConfig; balance
     if (r && r.play) { setPlay(r.play); setPhase("result"); } else setPhase("ready");
   };
   useEffect(() => { logic.current.finish = grabbed => void finish(grabbed); });
-  useScene(mount, (THREE, scene, camera) => {
-    camera.position.set(0, 3.4, 7.2); camera.lookAt(0, 1.4, 0);
+  useScene(mount, (THREE, scene, camera, _renderer, RoundedBoxGeometry) => {
+    camera.position.set(0, 3.6, 9.8); camera.lookAt(0, 1.55, 0);
     const mat = (color: number, extra: Partial<T.MeshStandardMaterialParameters> = {}) => new THREE.MeshStandardMaterial({ color, roughness: .45, ...extra });
-    const box = (w: number, h: number, d: number, m: T.Material, x: number, y: number, z: number) => { const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); b.position.set(x, y, z); scene.add(b); return b; };
-    const frame = mat(0xd8574f), dark = mat(0x3b3550), glass = new THREE.MeshPhysicalMaterial({ color: 0xffffff, transparent: true, opacity: .12, roughness: .05 });
+    const box = (w: number, h: number, d: number, m: T.Material, x: number, y: number, z: number) => { const b = new THREE.Mesh(new RoundedBoxGeometry(w, h, d, 3, Math.min(.12, w / 4, h / 4, d / 4)), m); b.position.set(x, y, z); b.castShadow = !m.transparent; b.receiveShadow = !m.transparent; scene.add(b); return b; };
+    const frame = mat(0x8accc2, { roughness: .24 }), dark = mat(0x3b3550), glass = new THREE.MeshPhysicalMaterial({ color: 0xffffff, transparent: true, opacity: .08, roughness: .05, depthWrite: false });
     box(4.6, .3, 3.4, frame, 0, -.15, 0); box(4.6, .4, 3.4, frame, 0, 3.75, 0);
     for (const [x, z] of [[-2.2, -1.6], [2.2, -1.6], [-2.2, 1.6], [2.2, 1.6]]) box(.18, 3.8, .18, frame, x, 1.8, z);
     box(4.4, 3.6, .04, glass, 0, 1.8, 1.62); box(.04, 3.6, 3.2, glass, -2.22, 1.8, 0); box(.04, 3.6, 3.2, glass, 2.22, 1.8, 0); box(4.4, 3.6, .04, mat(0xf3d9c9), 0, 1.8, -1.62);
-    box(4.4, .05, 3.2, mat(0xf6e7d4), 0, 0, 0);
+    box(4.4, .05, 3.2, mat(0xfff3e2), 0, 0, 0);
+    box(4.6, .4, 3.4, frame, 0, -.3, 0);
+    const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.7, .3), new THREE.MeshBasicMaterial({ map: label(THREE, [{ text: "PETCLASS · LUCKY CLAW", size: 42, color: "#35635f", bold: true }], 768, 100, "#fff6df") }));
+    sign.position.set(0, 3.75, 1.72); scene.add(sign);
+    for (const x of [-2.06, 2.06]) box(.045, 3.25, .045, mat(0xffedb4, { emissive: 0xffd78a, emissiveIntensity: .7 }), x, 1.8, 1.65);
+    box(1.1, .24, .08, dark, HOME.x, -.28, 1.74);
+    const joystick = new THREE.Mesh(new THREE.SphereGeometry(.1, 16, 12), mat(0xf9b4c8)); joystick.position.set(.8, -.08, 1.8); scene.add(joystick);
+    box(.06, .18, .06, dark, .8, -.23, 1.8);
     box(.9, .06, .9, dark, HOME.x, .03, HOME.z);
     box(.95, .5, .05, mat(0xffd36e), HOME.x, .25, HOME.z - .47);
     const rail = box(4.2, .08, .08, dark, 0, 3.45, 0);
     const colors = [0xff6b8b, 0xffa94d, 0xffe066, 0x69db7c, 0x4dabf7, 0x9775fa, 0xf783ac];
     const balls: { m: T.Mesh; v: number; gone: boolean }[] = [];
     for (let i = 0; i < 18; i++) {
-      const m = new THREE.Mesh(new THREE.SphereGeometry(R, 24, 16), mat(colors[i % colors.length], { roughness: .3 }));
+      const m = new THREE.Mesh(new THREE.SphereGeometry(R, 24, 16), mat(colors[i % colors.length], { roughness: .18 }));
+      m.castShadow = true; m.receiveShadow = true;
+      const seam = new THREE.Mesh(new THREE.TorusGeometry(R, .012, 6, 32), mat(0xfff7ea)); seam.rotation.x = Math.PI / 2; m.add(seam);
       m.position.set(-.6 + (i % 6) * .56 + (Math.random() - .5) * .12, R, -1.05 + Math.floor(i / 6) * .7 + (Math.random() - .5) * .12);
       scene.add(m); balls.push({ m, v: 0, gone: false });
     }
     const claw = new THREE.Group(); scene.add(claw);
     const hub = new THREE.Mesh(new THREE.CylinderGeometry(.2, .24, .3, 20), mat(0xc0c4cc, { metalness: .7, roughness: .3 })); claw.add(hub);
     const cable = new THREE.Mesh(new THREE.CylinderGeometry(.025, .025, 1, 8), dark); scene.add(cable);
-    const prongs = [0, 1, 2].map(i => { const pivot = new THREE.Group(); pivot.rotation.y = i * Math.PI * 2 / 3; const arm = new THREE.Group(); arm.position.set(0, -.12, .16); pivot.add(arm); const p = new THREE.Mesh(new THREE.BoxGeometry(.06, .55, .06), mat(0xaeb3bd, { metalness: .8, roughness: .3 })); p.position.y = -.27; arm.add(p); claw.add(pivot); return arm; });
+    const prongs = [0, 1, 2].map(i => { const pivot = new THREE.Group(); pivot.rotation.y = i * Math.PI * 2 / 3; const arm = new THREE.Group(); arm.position.set(0, -.12, .16); pivot.add(arm); const curve = new THREE.CatmullRomCurve3([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, -.3, .09), new THREE.Vector3(0, -.55, -.06)]); const p = new THREE.Mesh(new THREE.TubeGeometry(curve, 12, .035, 8, false), mat(0xaeb3bd, { metalness: .8, roughness: .22 })); arm.add(p); claw.add(pivot); return arm; });
     const L = logic.current, speed = 1.7, clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
     return dt => {
       L.t += dt;
@@ -154,36 +184,59 @@ export function GachaGame({ config, balance, api }: { config: GameConfig; balanc
   const mount = useRef<HTMLDivElement>(null);
   const anim = useRef({ phase: "idle", t: 0 });
   const [phase, setPhase] = useState("idle"), [play, setPlay] = useState<Play | null>(null), [busy, setBusy] = useState(false);
-  useScene(mount, (THREE, scene, camera) => {
-    camera.position.set(2.6, 2.7, 8.4); camera.lookAt(0, 1.9, 0);
+  useScene(mount, (THREE, scene, camera, _renderer, RoundedBoxGeometry) => {
+    camera.position.set(2.5, 3.1, 9.5); camera.lookAt(0, 1.75, 0);
     const mat = (color: number, extra: Partial<T.MeshStandardMaterialParameters> = {}) => new THREE.MeshStandardMaterial({ color, roughness: .5, ...extra });
     const machine = new THREE.Group(); scene.add(machine);
     const add = (geo: T.BufferGeometry, m: T.Material, x: number, y: number, z: number) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); machine.add(o); return o; };
-    add(new THREE.BoxGeometry(2.8, 4.2, 1.6), mat(0xe9b8c8), 0, 2.1, 0);
-    const list = config.prizes.slice(0, 7).map(p => ({ text: `${p.name} · ${p.weight}%`, size: 34, color: "#5b3b4a" }));
-    add(new THREE.PlaneGeometry(2.3, 2.1), new THREE.MeshBasicMaterial({ map: label(THREE, [{ text: "랜덤 가챠", size: 74, color: "#b5466b", bold: true }, ...list], 640, 584, "#fff4f7") }), 0, 2.85, .81);
-    add(new THREE.BoxGeometry(2.4, .08, .1), mat(0x8c5a6c), 0, 1.75, .82);
-    add(new THREE.BoxGeometry(.95, .8, .3), mat(0x2c2430), -.6, .85, .7);
-    add(new THREE.PlaneGeometry(.75, .32), new THREE.MeshBasicMaterial({ map: label(THREE, [{ text: money(config.price), size: 44, color: "#d8f3ff", bold: true }], 300, 128, "#2b4f9e") }), .55, 1.3, .81);
-    const button = add(new THREE.CylinderGeometry(.24, .24, .16, 32), mat(0xe03131, { emissive: 0x500000 }), .55, .78, .84); button.rotation.x = Math.PI / 2;
+    const pink = mat(0xf1b7ce, { roughness: .23 }), cream = mat(0xfff3db, { roughness: .3 });
+    const body = add(new RoundedBoxGeometry(2.7, 1.7, 1.9, 4, .2), pink, 0, .6, 0); body.castShadow = true; body.receiveShadow = true;
+    add(new THREE.CylinderGeometry(1.2, 1.35, .18, 48), cream, 0, 1.5, 0);
+    const drum = new THREE.Group(); drum.position.y = 2.45; machine.add(drum);
+    const colors = [0xf58fb5, 0x8bcdf4, 0xffdb83, 0x9edac5, 0xbaacf0];
+    for (let i = 0; i < 26; i++) {
+      const angle = i * 2.39996, radius = i < 18 ? .72 : .45;
+      const ball = new THREE.Mesh(new THREE.SphereGeometry(.23, 20, 12), mat(colors[i % colors.length], { roughness: .2 }));
+      ball.position.set(Math.cos(angle) * radius, -.55 + Math.floor(i / 9) * .42, Math.sin(angle) * radius); ball.castShadow = true;
+      const seam = new THREE.Mesh(new THREE.TorusGeometry(.23, .012, 6, 24), cream); seam.rotation.x = Math.PI / 2; ball.add(seam); drum.add(ball);
+    }
+    add(new THREE.SphereGeometry(1.12, 48, 32), new THREE.MeshPhysicalMaterial({ color: 0xe6fbff, transparent: true, opacity: .14, roughness: .08, clearcoat: 1, depthWrite: false }), 0, 2.45, 0);
+    add(new THREE.CylinderGeometry(.75, 1, .2, 48), pink, 0, 3.49, 0);
+    const crown = add(new THREE.SphereGeometry(.15, 24, 16), cream, 0, 3.7, 0); crown.scale.y = .8;
+    add(new RoundedBoxGeometry(1.1, .65, .14, 3, .08), mat(0x443f5b), -.55, .45, 1);
+    add(new RoundedBoxGeometry(1.3, .1, .65, 3, .04), cream, -.55, .08, 1.18);
+    add(new THREE.PlaneGeometry(.72, .32), new THREE.MeshBasicMaterial({ map: label(THREE, [{ text: money(config.price), size: 44, color: "#35635f", bold: true }], 300, 128, "#fff3db") }), .65, .9, .965);
+    add(new THREE.TorusGeometry(.25, .045, 12, 32), cream, .65, .43, 1.01);
+    const button = add(new THREE.CylinderGeometry(.21, .21, .16, 32), mat(0x8accc2, { roughness: .2 }), .65, .43, 1.03); button.rotation.x = Math.PI / 2;
+    add(new THREE.PlaneGeometry(1.95, .3), new THREE.MeshBasicMaterial({ map: label(THREE, [{ text: "CAPSULE CLUB", size: 48, color: "#8a4c6d", bold: true }], 600, 100, "#fff3db") }), 0, 1.25, .97);
     const capsule = new THREE.Group(); capsule.visible = false; scene.add(capsule);
-    const top = new THREE.Mesh(new THREE.SphereGeometry(.28, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2), mat([0xff8fab, 0x74c0fc, 0xffd43b, 0x8ce99a][Math.floor(Math.random() * 4)], { roughness: .25 }));
-    const bottom = new THREE.Mesh(new THREE.SphereGeometry(.28, 32, 16, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), mat(0xffffff, { roughness: .25 }));
+    const top = new THREE.Mesh(new THREE.SphereGeometry(.36, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2), mat([0xff8fab, 0x74c0fc, 0xffd43b, 0x8ce99a][Math.floor(Math.random() * 4)], { roughness: .25 }));
+    const bottom = new THREE.Mesh(new THREE.SphereGeometry(.36, 32, 16, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), mat(0xffffff, { roughness: .25 }));
     capsule.add(top, bottom);
+    const glow = new THREE.Mesh(new THREE.SphereGeometry(.17, 20, 12), new THREE.MeshBasicMaterial({ color: 0xffe5a3 })); glow.visible = false; capsule.add(glow);
+    const sparkles = new THREE.Group(); capsule.add(sparkles);
+    for (let i = 0; i < 12; i++) { const spark = new THREE.Mesh(new THREE.OctahedronGeometry(.04), new THREE.MeshBasicMaterial({ color: i % 2 ? 0xffdf87 : 0xffffff })); sparkles.add(spark); }
+    sparkles.visible = false;
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const A = anim.current;
     return dt => {
       A.t += dt;
-      button.position.z = A.phase === "press" && A.t < .25 ? .78 : .84;
-      machine.position.x = A.phase === "press" ? Math.sin(A.t * 60) * .03 * Math.max(0, 1 - A.t) : 0;
+      button.position.z = A.phase === "press" && A.t < .25 ? .97 : 1.03;
+      drum.rotation.y += A.phase === "press" || A.phase === "drop" ? dt * 3 : 0;
+      machine.position.x = !reducedMotion && A.phase === "press" ? Math.sin(A.t * 60) * .03 * Math.max(0, 1 - A.t) : 0;
       if (A.phase === "drop") {
         capsule.visible = true; const k = Math.min(1, A.t / 1.2);
-        capsule.position.set(-.6 + k * .5, .85 - Math.abs(Math.sin(k * Math.PI * 2.5)) * .35 * (1 - k) - k * .55, .7 + k * 1.6); capsule.rotation.x = k * 8;
+        capsule.position.set(-.55 + k * .45, .45 + Math.abs(Math.sin(k * Math.PI * 2)) * .22 * (1 - k) - k * .55, 1 + k * 1.35); capsule.rotation.x = reducedMotion ? 0 : k * 8; capsule.scale.setScalar(1); glow.visible = false; sparkles.visible = false;
         top.position.y = 0; top.rotation.z = 0;
         if (A.t > 1.3) { A.phase = "wait"; setPhase("ready"); }
       } else if (A.phase === "open") {
-        const k = Math.min(1, A.t / .6); top.position.y = k * .55; top.rotation.z = k * 1.2; capsule.rotation.x *= .9;
-        if (A.t > .8) { A.phase = "shown"; setPhase("result"); }
-      } else if (A.phase === "idle") { capsule.visible = false; top.position.y = 0; top.rotation.z = 0; }
+        const k = Math.min(1, A.t / .9), ease = 1 - (1 - k) ** 3;
+        capsule.rotation.x *= Math.exp(-dt * 12); capsule.scale.setScalar(1 + ease * .6); capsule.position.y = -.1 + ease * .4;
+        top.position.y = ease * .7; top.rotation.z = reducedMotion ? 0 : ease * .7;
+        glow.visible = true; glow.scale.setScalar(.5 + ease); sparkles.visible = !reducedMotion;
+        sparkles.children.forEach((spark, i) => { const angle = i * Math.PI * 2 / 12 + A.t; spark.position.set(Math.cos(angle) * ease * .85, .3 + Math.sin(angle) * ease * .65, Math.sin(i * 3) * .3); });
+        if (A.t > 1.6) { A.phase = "shown"; setPhase("result"); }
+      } else if (A.phase === "idle") { capsule.visible = false; glow.visible = false; sparkles.visible = false; top.position.y = 0; top.rotation.z = 0; }
     };
   });
   const start = async () => {
@@ -194,6 +247,7 @@ export function GachaGame({ config, balance, api }: { config: GameConfig; balanc
   };
   return <div className="pc-game">
     <div className="pc-game-stage" ref={mount}>{phase === "result" && play && <Result play={play} again="한 번 더 뽑기" onAgain={() => { setPlay(null); setPhase("idle"); anim.current.phase = "idle"; }} />}</div>
+    <details className="pc-game-prizes"><summary>상품과 당첨 확률</summary><ul>{config.prizes.map((prize, i) => <li key={i}>{prize.name} · {prize.weight}%</li>)}</ul></details>
     {phase === "idle" && <button className="pc-primary pc-game-cta" disabled={busy || balance < config.price} onClick={start}>{balance < config.price ? `${money(config.price - balance)} 더 필요해요` : `START · ${money(config.price)}`}</button>}
     {phase === "dropping" && <p className="pc-subtle pc-game-cta">캡슐이 나오는 중…</p>}
     {phase === "ready" && <button className="pc-primary pc-game-cta" onClick={() => { anim.current.phase = "open"; anim.current.t = 0; setPhase("opening"); }}>캡슐 열기</button>}
